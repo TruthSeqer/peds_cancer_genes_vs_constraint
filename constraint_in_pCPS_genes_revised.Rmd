@@ -1,0 +1,2109 @@
+---
+title: "The Evolutionary Impact of Childhood Cancer on the Human Gene Pool"
+subtitle: "R code for data analysis and visualization"
+author: "Created by: Ulrik Kristoffer Stoltze"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = FALSE)
+# loading r packages
+library(knitr)
+library(stringr)
+library(tidyverse)
+library(rio)
+library(ggthemes)
+library(forcats)
+library(gridExtra)
+library(grid)
+library(zoo)
+library(plotly)
+library(mdthemes)
+library(vroom)
+library(magrittr)
+library(ggrepel)
+library(scales)
+library(ggtext)
+library(cowplot)
+library(rcompanion)
+library(cli)
+library(devtools)
+library(splitstackshape)
+#library(gtsummary)
+library(ggforce)
+library(viridis)
+library(tidyquant)
+library(svglite)
+library(data.table)
+options(scipen = 999)
+"%nin%" <- Negate("%in%")
+#defining colors for plots
+yellow <- "#ffa600"
+red <- "#ef5675"
+purple <- "#7a5195"
+blue <- "#003f5c"
+```
+
+# Introduction
+
+Hello there. With an aim to provide full transparency and reproducibility of the data and analysis for the work *The Evolutionary Impact of Childhood Cancer on the Human Gene Pool* I have uploaded this code to GitHub. The code has several dependencies; 1) R & Rstudio software + the libraries loaded above, 2) the metadata, compiled in a single MS Excel sheet which is published as a supplement to the paper, 3) select data sets available from the links provided in comments in the relevant chunks of this code. As such all data should be available to reproduce the results and main graphical elements of the study. Any questions or comments may be directed to me, Ulrik Stoltze (ulrik.kristoffer.stoltze@regionh.dk), as the corresponding author of the work.
+
+# Importing data
+
+```{r loading_data cache=FALSE, echo = FALSE}
+# importing metafile and extracting Byrjalsen et al.'s pediatric cancer predispostion syndrome gene list
+pan_cancer_data <- import_list("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Pancancer_muts/pancancer_suppl_all_muts.xlsx")
+peds_CPS <- pan_cancer_data[["Byrjalsen_pCPS_genes_2021"]]
+# loading in constraint metrics from Karczewski et al.'s paper [Supplementary Data set 11 (direct link: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7334197/bin/41586_2020_2308_MOESM4_ESM.zip)]
+canonical_constraint_metrics <- read.csv("C:/Users/usto0005/Downloads/41586_2020_2308_MOESM4_ESM/supplement/supplementary_dataset_11_canonical_constraint_metrics.tsv") %>% 
+  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene))
+# loading in list of CPS genes including year of discovery - available in the suppl. for Rahman. Nature. 2014 - here https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4975511/
+nature_CPS <- read.csv(file = 'H:/nature_2014_CPS.csv', sep = ';', header = TRUE) %>%
+  mutate(gene = if_else(Gene..Symbol == "IKBKAP", "ELP1", Gene..Symbol))
+# loading metadata on CPS mutations in adults - taken from suppl. data 2 from Huang et al. Cell. 2018 - here https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5949147/
+adult_pan_cancer_data <- import_list("C:/Users/usto0005/Downloads/NIHMS957308-supplement-2.xlsx")
+adult_pan_cancer_data_PVs <- adult_pan_cancer_data[["S2A.Pathogenic_variants"]]
+```
+
+# Data cleaning, annotation and preparation
+
+```{r annotating_pCPS echo=F, include=F}
+# adding constraint metrics to pCPS genes
+peds_CPS_constaint_anno <- 
+  left_join(peds_CPS, canonical_constraint_metrics) %>%
+  mutate(Inheritance_bin = if_else(Inheritance == "AR", "AR", "AD/XLR")) %>%
+  mutate(constrained_bin = if_else(oe_lof_upper <= 0.35, "yes", "no"))
+# reordering by mode of inheritance
+peds_CPS_constaint_anno <- within(peds_CPS_constaint_anno, {
+  Inheritance <- factor(Inheritance, labels = c("AD", "AR", "XLR"))
+})
+# adding marker for cCPS genes to total constraint dataset
+peds_CPS_genes <- peds_CPS$gene
+
+canonical_constraint_metrics <- 
+canonical_constraint_metrics %>% 
+  mutate(pCPS_gene = if_else(gene %in% peds_CPS_genes, 1, 0))
+```
+
+```{r binnning_constraint echo=F, include=F}
+# reordering by mode oe_lof_upper
+canonical_constraint_metrics <- 
+canonical_constraint_metrics %>%
+  arrange(oe_lof_upper) %>%
+  distinct(gene, .keep_all = T) %>% 
+  mutate(gene=factor(gene, levels=gene)) %>% 
+  filter(!is.na(oe_lof_upper))
+
+# binning oe_lof_upper for total contraint metrics for use in plots
+canonical_constraint_metrics$plot_bins <- as.numeric(cut_number(canonical_constraint_metrics$oe_lof_upper, 85))
+canonical_constraint_metrics$plot_bins_mis <- as.numeric(cut_number(canonical_constraint_metrics$oe_mis_upper, 53))
+canonical_constraint_metrics$plot_bins_50 <- as.numeric(cut_number(canonical_constraint_metrics$oe_lof_upper, 50))
+canonical_constraint_metrics$plot_bins_3 <- as.numeric(cut_number(canonical_constraint_metrics$oe_lof_upper, 3))
+canonical_constraint_metrics$plot_bins_23 <- as.numeric(cut_number(canonical_constraint_metrics$oe_lof_upper, 23))
+canonical_constraint_metrics$plot_bins_9 <- as.numeric(cut_number(canonical_constraint_metrics$oe_lof_upper, 9))
+canonical_constraint_metrics$plot_bins_34_mis <- as.numeric(cut_number(canonical_constraint_metrics$oe_mis_upper, 34))
+canonical_constraint_metrics$plot_bins_3_mis <- as.numeric(cut_number(canonical_constraint_metrics$oe_mis_upper, 3))
+canonical_constraint_metrics$plot_bins_13_mis <- as.numeric(cut_number(canonical_constraint_metrics$oe_mis_upper, 13))
+
+
+#calculating bin metrics
+plot_bin_means <- 
+canonical_constraint_metrics %>% 
+  group_by(plot_bins) %>% 
+  summarise(mean_plot_bin_upper = mean(oe_lof_upper),
+            mean_plot_bin_lower = mean(oe_lof_lower),
+            mean_plot_bin_exact = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins) %>% 
+  filter(!is.na(mean_plot_bin_upper))
+
+plot_bin_means_mis <-
+canonical_constraint_metrics %>%
+  group_by(plot_bins_mis) %>%
+  summarise(mean_plot_bin_upper = mean(oe_mis_upper),
+            mean_plot_bin_lower = mean(oe_mis_lower),
+            mean_plot_bin_exact = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_mis) %>%
+  filter(!is.na(mean_plot_bin_upper))
+
+plot_bin_means_for_facet <- 
+  bind_rows(
+      canonical_constraint_metrics %>% group_by(plot_bins_50) %>% 
+  summarise(mean_plot_bin_upper = mean(oe_lof_upper),
+            mean_plot_bin_lower = mean(oe_lof_lower),
+            mean_plot_bin_exact = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins_50,
+         plot_bin_inheritance = "AD (LoF)") %>% 
+  filter(!is.na(mean_plot_bin_upper)),
+    canonical_constraint_metrics %>% group_by(plot_bins_3) %>% 
+  summarise(mean_plot_bin_upper = mean(oe_lof_upper),
+            mean_plot_bin_lower = mean(oe_lof_lower),
+            mean_plot_bin_exact = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins_3,
+         plot_bin_inheritance = "XLR") %>% 
+  filter(!is.na(mean_plot_bin_upper)),
+  canonical_constraint_metrics %>% group_by(plot_bins_9) %>% 
+  summarise(mean_plot_bin_upper = mean(oe_lof_upper),
+            mean_plot_bin_lower = mean(oe_lof_lower),
+            mean_plot_bin_exact = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins_9,
+         plot_bin_inheritance = "AD (GoF)") %>% 
+  filter(!is.na(mean_plot_bin_upper)),
+    canonical_constraint_metrics %>% group_by(plot_bins_23) %>% 
+  summarise(mean_plot_bin_upper = mean(oe_lof_upper),
+            mean_plot_bin_lower = mean(oe_lof_lower),
+            mean_plot_bin_exact = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins_23,
+         plot_bin_inheritance = "AR") %>% 
+  filter(!is.na(mean_plot_bin_upper))
+  )
+
+plot_bin_means_for_facet_mis <-
+  bind_rows(
+      canonical_constraint_metrics %>% group_by(plot_bins_3_mis) %>%
+  summarise(mean_plot_bin_upper = mean(oe_mis_upper),
+            mean_plot_bin_lower = mean(oe_mis_lower),
+            mean_plot_bin_exact = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_3_mis,
+         plot_bin_inheritance = "DnC") %>%
+  filter(!is.na(mean_plot_bin_upper)),
+    canonical_constraint_metrics %>% group_by(plot_bins_3_mis) %>%
+  summarise(mean_plot_bin_upper = mean(oe_mis_upper),
+            mean_plot_bin_lower = mean(oe_mis_lower),
+            mean_plot_bin_exact = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_3_mis,
+         plot_bin_inheritance = "LnC") %>%
+  filter(!is.na(mean_plot_bin_upper)),
+    canonical_constraint_metrics %>% group_by(plot_bins_13_mis) %>%
+  summarise(mean_plot_bin_upper = mean(oe_mis_upper),
+            mean_plot_bin_lower = mean(oe_mis_lower),
+            mean_plot_bin_exact = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_13_mis,
+         plot_bin_inheritance = "LC") %>%
+  filter(!is.na(mean_plot_bin_upper)),
+    canonical_constraint_metrics %>% group_by(plot_bins_34_mis) %>%
+  summarise(mean_plot_bin_upper = mean(oe_mis_upper),
+            mean_plot_bin_lower = mean(oe_mis_lower),
+            mean_plot_bin_exact = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_34_mis,
+         plot_bin_inheritance = "DC") %>%
+  filter(!is.na(mean_plot_bin_upper))
+  )
+  
+```
+
+```{r annotating_constraint}
+# adding constraint markers and counts to data
+not_constrained_genes <- 
+  peds_CPS_constaint_anno %>% 
+  filter(oe_lof_upper > 0.35)
+
+ADXLR_gene_names <- 
+peds_CPS_constaint_anno %>% 
+  filter(Inheritance_bin == "AD/XLR") %>% 
+  #filter(oe_lof_upper <= 0.35) %>% 
+  .$gene
+
+ADXLR_LoF_gene_names <- 
+peds_CPS_constaint_anno %>% 
+  filter(Inheritance_bin == "AD/XLR") %>% 
+  filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)","XLR")) %>% 
+  #filter(oe_lof_upper <= 0.35) %>% 
+  .$gene
+
+ADXLR_GoF_gene_names <- 
+peds_CPS_constaint_anno %>% 
+  filter(Inheritance_bin == "AD/XLR") %>% 
+  filter(`ADDED: LoF vs GoF` == "AD (GoF)") %>% 
+  #filter(oe_lof_upper <= 0.35) %>% 
+  .$gene
+
+constrained_ADXLR_gene_names <- 
+peds_CPS_constaint_anno %>% 
+  filter(Inheritance_bin == "AD/XLR") %>% 
+  filter(oe_lof_upper <= 0.35) %>% 
+  .$gene
+
+likely_constrained_ADXLR_names <- 
+  not_constrained_genes %>% 
+  filter(Inheritance_bin == "AD/XLR") %>% 
+  filter(oe_lof <= 0.35) %>% 
+  .$gene
+
+unlikely_constrained_ADXLR_names <- 
+        not_constrained_genes %>% 
+         filter(Inheritance_bin == "AD/XLR") %>% 
+         filter(oe_lof > 0.35) %>% 
+         filter(oe_lof_lower <= 0.35) %>% 
+  .$gene
+
+unconstrained_ADXLR_names <- 
+    not_constrained_genes %>% 
+         filter(Inheritance_bin == "AD/XLR") %>% 
+         #filter(oe_lof > 0.35) %>% 
+         filter(oe_lof_lower > 0.35) %>% 
+.$gene
+
+# AR genes
+
+AR_gene_names <- 
+peds_CPS_constaint_anno %>% 
+  filter(Inheritance_bin == "AR") %>% 
+  #filter(oe_lof_upper <= 0.35) %>% 
+  .$gene
+
+constrained_AR_gene_names <- 
+peds_CPS_constaint_anno %>% 
+  filter(Inheritance_bin == "AR") %>% 
+  filter(oe_lof_upper <= 0.35) %>% 
+  .$gene
+
+undetermined_AR_names <- 
+    not_constrained_genes %>% 
+         filter(Inheritance_bin == "AR") %>% 
+  .$gene
+
+likely_constrained_AR_names <- 
+    not_constrained_genes %>% 
+         filter(Inheritance_bin == "AR") %>% 
+         filter(oe_lof <= 0.35) %>% 
+  .$gene
+
+unlikely_constrained_AR_names <- 
+    not_constrained_genes %>% 
+         filter(Inheritance_bin == "AR") %>% 
+         filter(oe_lof > 0.35) %>% 
+         filter(oe_lof_lower <= 0.35) %>% 
+  .$gene
+
+unconstrained_AR_names <- 
+    not_constrained_genes %>% 
+         filter(Inheritance_bin == "AR") %>% 
+         #filter(oe_lof > 0.35) %>% 
+         filter(oe_lof_lower > 0.35) %>% 
+  .$gene
+
+# counts
+ADXLR_genes <- length(ADXLR_gene_names)
+ADXLR_constrained_genes <- length(constrained_ADXLR_gene_names)
+likely_constrained_ADXLR <- length(likely_constrained_ADXLR_names)
+unlikely_constrained_ADXLR <- length(unlikely_constrained_ADXLR_names)
+unconstrained_ADXLR <- length(unconstrained_ADXLR_names)
+AR_genes <- length(AR_gene_names)
+AR_constrained_genes <- length(constrained_AR_gene_names)
+likely_constrained_AR <- length(likely_constrained_AR_names)
+unlikely_constrained_AR <- length(unlikely_constrained_AR_names)
+unconstrained_AR <- length(unconstrained_AR_names)
+
+undetermined_ADXLR <- 
+    nrow(not_constrained_genes %>% 
+         filter(Inheritance_bin == "AD/XLR"))
+
+undetermined_AR <- 
+    nrow(not_constrained_genes %>% 
+         filter(Inheritance_bin == "AR"))
+
+
+ADXLR_vs_AR_fish_test <- 
+fisher.test(matrix(c(ADXLR_constrained_genes,
+                     AR_constrained_genes,
+                     ADXLR_genes-ADXLR_constrained_genes,
+                     AR_genes-AR_constrained_genes), nrow=2))
+
+ADXLR_isolatedcancerrisk_names <- 
+peds_CPS_constaint_anno %>% 
+  filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)","XLR")) %>%
+  filter(`ADDED: non_cancer_phenotype` == "None") %>% 
+  .$gene
+
+notcon_ADXLR_gene_names <- 
+peds_CPS_constaint_anno %>% 
+  filter(Inheritance != "AR") %>%
+  mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "DC",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "LC",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "LnC",
+    oe_lof_upper >= 0.35 ~ "DnC"
+  )) %>% 
+  filter(lof_constrained_evidence %in% c("LnC", "DnC")) %>% 
+  .$gene
+
+peds_CPS_constaint_anno_ADXLR <- 
+peds_CPS_constaint_anno %>% 
+    filter(Inheritance != "AR") %>% 
+  mutate(pCPS_isolatedcancerrisk_gene = if_else(gene %in% ADXLR_isolatedcancerrisk_names, 1, 0)) %>% 
+  mutate(pCPS_notcon_gene = if_else(gene %in% notcon_ADXLR_gene_names, 1, 0))
+
+# adding marker for cCPS genes to constraint dataset
+canonical_constraint_metrics <- 
+canonical_constraint_metrics %>% 
+  mutate(ADXLR_pCPS_gene = if_else(gene %in% ADXLR_gene_names, 1, 0)) %>% 
+  mutate(ADXLR_LoF_pCPS_gene = if_else(gene %in% ADXLR_LoF_gene_names, 1, 0)) %>% 
+  mutate(ADXLR_GoF_pCPS_gene = if_else(gene %in% ADXLR_GoF_gene_names, 1, 0)) %>% 
+  mutate(AR_pCPS_gene = if_else(gene %in% AR_gene_names, 1, 0)) %>% 
+  mutate(pCPS_isolatedcancerrisk_gene = if_else(gene %in% ADXLR_isolatedcancerrisk_names, 1, 0)) %>% 
+  mutate(pCPS_ADXLR_gene = if_else(gene %in% ADXLR_gene_names, 1, 0)) %>% 
+  mutate(pCPS_notcon_gene = if_else(gene %in% notcon_ADXLR_gene_names, 1, 0))
+
+peds_CPS_constaint_anno <- 
+peds_CPS_constaint_anno %>% 
+  mutate(ADXLR_pCPS_gene = if_else(gene %in% ADXLR_gene_names, 1, 0)) %>% 
+  mutate(AR_pCPS_gene = if_else(gene %in% AR_gene_names, 1, 0)) %>% 
+  mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "DC",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "LC",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "LnC",
+    oe_lof_upper >= 0.35 ~ "DnC"
+  ))
+
+# selecting cancer predisposition genes with no AD/XLR pediatric-onset
+aCPS_ADXLR <- 
+  nature_CPS %>% 
+  filter(Gene..Symbol %nin% peds_CPS_constaint_anno_ADXLR$gene) %>% 
+  filter(Mode.of.inheritance %nin% c("autosomal recessive ")) %>% 
+  pull(Gene..Symbol)
+
+aCPS_AR <- 
+  nature_CPS %>% 
+  filter(Gene..Symbol %nin% peds_CPS_constaint_anno_ADXLR$gene) %>% 
+  filter(Mode.of.inheritance %in% c("autosomal recessive ")) %>% 
+  pull(Gene..Symbol)
+
+# adding marker for aCPS genes to constraint dataset
+canonical_constraint_metrics <- 
+canonical_constraint_metrics %>% 
+  mutate(aCPS_gene = if_else(gene %in% c(aCPS_ADXLR, aCPS_AR), 1, 0)) %>% 
+  mutate(ADXLR_aCPS_gene = if_else(gene %in% aCPS_ADXLR, 1, 0)) %>% 
+  mutate(AR_aCPS_gene = if_else(gene %in% aCPS_AR, 1, 0))
+
+
+```
+
+```{r sizematching}
+bin_cutoffs_54 <- 
+canonical_constraint_metrics %>% 
+  select(gene, cds_length, ADXLR_LoF_pCPS_gene) %>%
+  filter(ADXLR_LoF_pCPS_gene == 1 | gene == "BRAF") %>% 
+  arrange(cds_length) %>%
+  slice(seq(6,54,6)) %>% pull(cds_length)
+
+down_sample_size_54 <- 
+canonical_constraint_metrics %>%
+  select(gene, cds_length, ADXLR_LoF_pCPS_gene) %>% 
+  mutate(bin = cut(cds_length, breaks = bin_cutoffs_54, include.lowest = TRUE, labels = FALSE)) %>%
+  filter(!is.na(bin)) %>% 
+  group_by(bin) %>%
+  summarise(count = n()) %>% 
+  summarise(min = min(count)) %>% pull(min)
+
+sizematched_constraint_metrics_54 <- 
+canonical_constraint_metrics %>%
+  #select(gene, cds_length, pCPS_gene) %>% 
+  mutate(bin = cut(cds_length, breaks = bin_cutoffs_54, include.lowest = TRUE, labels = FALSE)) %>%
+  filter(!is.na(bin)) %>% 
+  group_by(bin) %>% 
+  sample_n(size = down_sample_size_54) %>% 
+  ungroup()
+
+# binning oe_lof_upper for total contraint metrics for use in plots
+sizematched_constraint_metrics_54$plot_bins <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_lof_upper, 85))
+sizematched_constraint_metrics_54$plot_bins_mis <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_mis_upper, 53))
+sizematched_constraint_metrics_54$plot_bins_50 <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_lof_upper, 50))
+sizematched_constraint_metrics_54$plot_bins_3 <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_lof_upper, 3))
+sizematched_constraint_metrics_54$plot_bins_23 <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_lof_upper, 23))
+sizematched_constraint_metrics_54$plot_bins_9 <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_lof_upper, 9))
+sizematched_constraint_metrics_54$plot_bins_3_mis <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_mis_upper, 3))
+sizematched_constraint_metrics_54$plot_bins_13_mis <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_mis_upper, 13))
+sizematched_constraint_metrics_54$plot_bins_34_mis <- as.numeric(cut_number(sizematched_constraint_metrics_54$oe_mis_upper, 34))
+
+#calculating bin metrics
+plot_bin_means_sizematched <- 
+sizematched_constraint_metrics_54 %>% 
+  group_by(plot_bins) %>% 
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_lof_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_lof_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins) %>% 
+  filter(!is.na(mean_plot_bin_upper_sizematched))
+
+plot_bin_means_mis_sizematched <-
+sizematched_constraint_metrics_54 %>%
+  group_by(plot_bins_mis) %>%
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_mis_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_mis_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_mis) %>%
+  filter(!is.na(mean_plot_bin_upper_sizematched))
+
+plot_bin_means_for_facet_sizematched <- 
+  bind_rows(
+      sizematched_constraint_metrics_54 %>% group_by(plot_bins_50) %>% 
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_lof_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_lof_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins_50,
+         plot_bin_inheritance = "AD (LoF)") %>% 
+  filter(!is.na(mean_plot_bin_upper_sizematched)),
+    sizematched_constraint_metrics_54 %>% group_by(plot_bins_3) %>% 
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_lof_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_lof_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins_3,
+         plot_bin_inheritance = "XLR") %>% 
+  filter(!is.na(mean_plot_bin_upper_sizematched)),
+   sizematched_constraint_metrics_54 %>% group_by(plot_bins_9) %>% 
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_lof_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_lof_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins_9,
+         plot_bin_inheritance = "AD (GoF)") %>% 
+  filter(!is.na(mean_plot_bin_upper_sizematched)),
+    sizematched_constraint_metrics_54 %>% group_by(plot_bins_23) %>% 
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_lof_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_lof_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_lof)) %>% 
+  mutate(plot_bin_mean_order = plot_bins_23,
+         plot_bin_inheritance = "AR") %>% 
+  filter(!is.na(mean_plot_bin_upper_sizematched))
+  )
+
+plot_bin_means_for_facet_mis_sizematched <-
+  bind_rows(
+      sizematched_constraint_metrics_54 %>% group_by(plot_bins_3_mis) %>%
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_mis_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_mis_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_3_mis,
+         plot_bin_inheritance = "DnC") %>%
+  filter(!is.na(mean_plot_bin_upper_sizematched)),
+    sizematched_constraint_metrics_54 %>% group_by(plot_bins_3_mis) %>%
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_mis_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_mis_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_3_mis,
+         plot_bin_inheritance = "LnC") %>%
+  filter(!is.na(mean_plot_bin_upper_sizematched)),
+    sizematched_constraint_metrics_54 %>% group_by(plot_bins_13_mis) %>%
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_mis_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_mis_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_13_mis,
+         plot_bin_inheritance = "LC") %>%
+  filter(!is.na(mean_plot_bin_upper_sizematched)),
+    sizematched_constraint_metrics_54 %>% group_by(plot_bins_34_mis) %>%
+  summarise(mean_plot_bin_upper_sizematched = mean(oe_mis_upper),
+            mean_plot_bin_lower_sizematched = mean(oe_mis_lower),
+            mean_plot_bin_exact_sizematched = mean(oe_mis)) %>%
+  mutate(plot_bin_mean_order = plot_bins_34_mis,
+         plot_bin_inheritance = "DC") %>%
+  filter(!is.na(mean_plot_bin_upper_sizematched))
+  )
+```
+
+```{r metadata_homogen}
+# This chunck conducts the data homogenization of reported variants from multiple ped. pan-cancer studies. The principle is that the script loads in the data in it original published format and cleanes the catagories so that they have uniform names. This means that every unconventional nomenclature used can be assessed below. the catagories cleaned include 1) mutational ontology, 2) pathogenicity classification, 3) diagnosis type.
+
+#sample IDs that overlap between Grobner and Zhang, which should be excluded from Zhang
+SJ_IDs_for_exclusion <- 
+read_tsv("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Pancancer_muts/grobner_2018_all_patients.txt") %>% 
+  distinct(Sample) %>% 
+  filter(grepl("SJ", Sample)) %>% pull(Sample)
+# test whether germline gene panels in Grobner vs Zhang could lead to relevant genes (i.e. the 85 pCPS genes) being reported in Zhang only
+temp_genes <- 
+pan_cancer_data[["Zhang_2015_genes"]] %>% 
+  filter(genes %nin% pan_cancer_data[["Grobner_2018_genes"]]$genes) %>% 
+  filter(genes %in% peds_CPS_genes) %>% pull(genes)
+# conclusion: 5 relevant pCPS genes were reported by Zhang only
+pan_cancer_data[["Zhang_2015"]] %>% 
+  filter(gene %in% temp_genes) %>% 
+  filter(ID %in% SJ_IDs_for_exclusion)
+# conclusion: no variants in these 5 genes in the relevant, overlapping patients.
+
+combined_pancancer_data <- rbind(pan_cancer_data[["Zhang_2015"]] %>% 
+                                   filter(ID %nin% SJ_IDs_for_exclusion) %>% 
+                                   mutate(total_n = total_n-length(SJ_IDs_for_exclusion)), 
+                                 pan_cancer_data[["Parsons_2016"]],
+                                 pan_cancer_data[["Mody_2016"]],
+                                 pan_cancer_data[["Oberg_2016"]],
+                                 pan_cancer_data[["Grobner_2018"]],
+                                 pan_cancer_data[["Wong_2020"]],
+                                 pan_cancer_data[["Byrjalsen_2020"]],
+                                 pan_cancer_data[["Fiala_2021"]],
+                                 pan_cancer_data[["Newmann_2021"]],
+                                 pan_cancer_data[["Stedingk_2021"]],
+                                 pan_cancer_data[["Wagener_2021"]])
+
+combined_pancancer_panels <- rbind(pan_cancer_data[["Zhang_2015_genes"]] %>% 
+                                     mutate(n_total = n_total-length(SJ_IDs_for_exclusion)), 
+                                 pan_cancer_data[["Parsons_2016_genes"]],
+                                 pan_cancer_data[["Mody_2016_genes"]],
+                                 pan_cancer_data[["Oberg_2016_genes"]],
+                                 pan_cancer_data[["Grobner_2018_genes"]],
+                                 pan_cancer_data[["Wong_2020_genes"]],
+                                 pan_cancer_data[["Byrjalsen_2020_genes"]],
+                                 pan_cancer_data[["Fiala_2021_genes"]],
+                                 pan_cancer_data[["Newmann_2021_genes"]],
+                                 pan_cancer_data[["Stedingk_2021_genes"]],
+                                 pan_cancer_data[["Wagener_2021_genes"]])
+
+combined_pancancer_data_cleaned <- 
+combined_pancancer_data %>% 
+  mutate(ontology_cleaned = case_when(
+    ontology == "." ~ "deletion", #Grobner_2018 does not report mutation specifics - noted as "Deletion"; assumed SV
+    ontology == "5_prime_UTR_premature_start_codon_gain_variant" ~ "UTR",
+    ontology == "deletion" ~ "deletion",
+    ontology == "disruptive_inframe_deletion" ~ "inframe",
+    ontology == "disruptive_inframe_insertion" ~ "inframe",
+    ontology == "duplication" ~ "duplication",
+    ontology == "frameshift" ~ "frameshift",
+    ontology == "frameshift deletion" ~ "frameshift",
+    ontology == "frameshift insertion" ~ "frameshift",
+    ontology == "frameshift_variant" ~ "frameshift",
+    ontology == "gain" ~ "duplication",
+    ontology == "Heterozygous" ~ "other", #allele reported by Oberg_2020
+    ontology == "Homozygous" ~ "other", #allele reported by Oberg_2020
+    ontology == "inframe" ~ "inframe",
+    ontology == "inframe_deletion" ~ "inframe",
+    ontology == "inframe_insertion" ~ "inframe",
+    ontology == "initiator_codon_variant" ~ "startloss",
+    ontology == "loss" ~ "deletion",
+    ontology == "missense" ~ "missense",
+    ontology == "Missense" ~ "missense",
+    ontology == "missense,splice_region" ~ "missense",
+    ontology == "missense;upstream_gene" ~ "missense",
+    ontology == "missense_variant" ~ "missense",
+    ontology == "nonframeshift deletion" ~ "inframe",
+    ontology == "nonsense" ~ "nonsense",
+    ontology == "nonsynonymous SNV" ~ "missense",
+    ontology == "proteinDel" ~ "inframe",
+    ontology == "proteinIns" ~ "inframe",
+    ontology == "splice" ~ "splice",
+    ontology == "splice_acceptor,coding_sequence,intron" ~ "splice",
+    ontology == "splice_acceptor,splice_donor,intron" ~ "splice",
+    ontology == "splice_acceptor_variant" ~ "splice",
+    ontology == "splice_donor" ~ "splice",
+    ontology == "splice_donor_variant" ~ "splice",
+    ontology == "splice_region" ~ "splice",
+    ontology == "splice_region,intron" ~ "splice",
+    ontology == "splice_region_variant" ~ "splice",
+    ontology == "splice_region_variant,intron_variant" ~ "splice",
+    ontology == "start_lost" ~ "startloss",
+    ontology == "stop-loss" ~ "stoploss",
+    ontology == "stop_gained" ~ "nonsense",
+    ontology == "stopgain" ~ "nonsense",
+    ontology == "synonymous SNV" ~ "synonymous",
+    ontology == "synonymous_variant" ~ "synonymous"
+  )) %>% 
+    mutate(classification_cleaned = case_when(
+    classification == "P" ~ "P",
+    classification == "PP" ~ "LP",
+    classification == "U" ~ "VUS",
+    classification == "PB" ~ "LB",
+    classification == "B" ~ "B",
+    classification = is.na(classification) ~ "not_reported",
+    classification == "pathogenic" ~ "P",
+    classification == "likely pathogenic" ~ "LP",
+    classification == "C5: Pathogenic" ~ "P",
+    classification == "C4: Likely pathogenic" ~ "LP",
+    classification == "C3: Unknown pathogenicity" ~ "VUS",
+    classification == "VUS" ~ "VUS",
+    classification == "Pathogenic" ~ "P",
+    classification == "Likely Pathogenic" ~ "LP",
+    classification == "Spec. Inter." ~ "VUS",
+    classification == "LP" ~ "LP",
+    classification == "Likely pathogenic" ~ "LP",
+    classification == "likely benign" ~ "LB",
+    classification == "benign" ~ "B",
+    classification == "prioritized VUS"  ~ "VUS"
+  )) %>% 
+  mutate(diagnosis_type_cleaned = case_when(
+    diagnosis_type == "Neuroblastoma" ~ "NB",
+diagnosis_type == "ALL with alterations of ERG" ~ "ALL",
+diagnosis_type == "Hyperdiploid ALL" ~ "ALL",
+diagnosis_type == "Medulloblastoma" ~ "MB",
+diagnosis_type == "Osteosarcoma" ~ "OS",
+diagnosis_type == "BALL" ~ "ALL",
+diagnosis_type == "B-Lineage ALL E2A-PBX1 Subtype" ~ "ALL",
+diagnosis_type == "Rhabdosarcoma" ~ "RMS",
+diagnosis_type == "BCR-ABL1 ALL" ~ "ALL",
+diagnosis_type == "High Grade Glioma" ~ "HHG",
+diagnosis_type == "Ependymoma" ~ "EPN",
+diagnosis_type == "Low Grade Glioma" ~ "LGG",
+diagnosis_type == "Hypodiploid ALL" ~ "ALL",
+diagnosis_type == "Retinoblastoma" ~ "RB",
+diagnosis_type == "Ewing's sarcoma" ~ "EWS",
+diagnosis_type == "Infant ALL" ~ "ALL",
+diagnosis_type == "Mixed Lineage Leukemia" ~ "ALL/AML",
+diagnosis_type == "Adrenocortical Carcinoma" ~ "ACC",
+diagnosis_type == "Choroid Plexus Carcinoma" ~ "CPC",
+diagnosis_type == "ETV6-RUNX1 ALL" ~ "ALL",
+diagnosis_type == "Core binding factor AML" ~ "AML",
+diagnosis_type == "T-cell ALL" ~ "ALL",
+diagnosis_type == "iAmp21 ALL" ~ "ALL",
+diagnosis_type == "Acute megakaryoblastic leukemia" ~ "ALL",
+diagnosis_type == "PH-LIKE" ~ "ALL",
+diagnosis_type == "TCF3" ~ "not_catagorized",
+diagnosis_type == "Melanoma" ~ "MM",
+diagnosis_type == "Wilms tumor" ~ "WT",
+diagnosis_type == "Pulmonary pleuroblastoma" ~ "PPB",
+diagnosis_type == "Pheochromocytoma" ~ "PCT",
+diagnosis_type == "Glioblastoma" ~ "GB",
+diagnosis_type == "Adrenocortical carcinoma" ~ "ACC",
+diagnosis_type == "Plexiform neurofibroma" ~ "NF",
+diagnosis_type == "Anaplastic medulloblastoma" ~ "MB",
+diagnosis_type == "Ewing sarcoma" ~ "EWS",
+diagnosis_type == "Hepatocellular carcinoma" ~ "HCC",
+diagnosis_type == "HCC" ~ "HCC",
+diagnosis_type == "AML" ~ "AML",
+diagnosis_type == "NBL" ~ "NB",
+diagnosis_type == "PPB" ~ "PPB",
+diagnosis_type == "Ovarian Small Cell Carcinoma" ~ "OSCC",
+diagnosis_type == "IMFM" ~ "IMFM",
+diagnosis_type == "Omental mass, Panniculitis" ~ "not_catagorized",
+diagnosis_type == "Embryonal RMS" ~ "RMS",
+diagnosis_type == "HLH" ~ "HLH",
+diagnosis_type == "MDS" ~ "MDS",
+diagnosis_type == "ALL" ~ "ALL",
+diagnosis_type == "Hepatoblastoma" ~ "HCC",
+diagnosis_type == "Poorly differentiated carcinoma with focal neuroendocrine differentiation" ~ "not_catagorized",
+diagnosis_type == "Pineoblastoma" ~ "PB",
+diagnosis_type == "Nested stromal epithelial tumor of the liver" ~ "NSETL",
+diagnosis_type == "NB" ~ "NB",
+diagnosis_type == "HGGother" ~ "HGG",
+diagnosis_type == "OS" ~ "OS",
+diagnosis_type == "PA" ~ "PA",
+diagnosis_type == "RB" ~ "RB",
+diagnosis_type == "ATRT" ~ "ATRT",
+diagnosis_type == "MB_SHH" ~ "MB",
+diagnosis_type == "ACC" ~ "ACC",
+diagnosis_type == "B-ALL-HYPO" ~ "ALL",
+diagnosis_type == "RMS" ~ "RMS",
+diagnosis_type == "HB" ~ "HB",
+diagnosis_type == "MB_WNT" ~ "MB",
+diagnosis_type == "HGG_K27M" ~ "HHG",
+diagnosis_type == "MB_Group3" ~ "MB",
+diagnosis_type == "B-ALLother" ~ "ALL",
+diagnosis_type == "BL" ~ "BL",
+diagnosis_type == "MB_Group4" ~ "MB",
+diagnosis_type == "MB" ~ "MB",
+diagnosis_type == "Sarcoma other" ~ "STS",
+diagnosis_type == "DMG" ~ "DMG",
+diagnosis_type == "Rhabdoid MRT" ~ "ATRT",
+diagnosis_type == "Solid other" ~ "SOLID",
+diagnosis_type == "CNS other" ~ "CNS",
+diagnosis_type == "RMS FP" ~ "RMS",
+diagnosis_type == "MPNST" ~ "MPNST",
+diagnosis_type == "EWS" ~ "EWS",
+diagnosis_type == "CNS embryonal" ~ "CNS",
+diagnosis_type == "HGG" ~ "HGG",
+diagnosis_type == "Lymphoma" ~ "LYM",
+diagnosis_type == "WT" ~ "WT",
+diagnosis_type == "Rhabdoid ATRT" ~ "ATRT",
+diagnosis_type == "Rhabdomyosarcoma" ~ "RMS",
+diagnosis_type == "Precursor B-ALL" ~ "ALL",
+diagnosis_type == "SEGA" ~ "SEGA",
+diagnosis_type == "AT/RT" ~ "ATRT",
+diagnosis_type == "Astrocytoma" ~ "AST",
+diagnosis_type == "Hodgkin lymphoma" ~ "HL",
+diagnosis_type == "LCH" ~ "LCH",
+diagnosis_type == "JMML" ~ "JMML",
+diagnosis_type == "Diffuse intrinsic pontine glioma" ~ "DMG",
+diagnosis_type == "Plasmacytoid dendritic cell leukemia" ~ "PDCL",
+diagnosis_type == "CML" ~ "CML",
+diagnosis_type == "Malignant mesothelioma" ~ "MMT",
+diagnosis_type == "Burkitt lymphoma" ~ "BL",
+diagnosis_type == "Non-Hodgkin lymphoma" ~ "NHL",
+diagnosis_type == "Plexus papilloma" ~ "PP",
+diagnosis_type == "Neurofibroma" ~ "NF",
+diagnosis_type == "CNS-germinoma" ~ "GER",
+diagnosis_type == "Tumor in corpus pineale" ~ "PB",
+diagnosis_type == "Glioma" ~ "LGG",
+diagnosis_type == "Pancreatic carcinoma" ~ "PANC",
+diagnosis_type == "Schwannoma" ~ "SCH",
+diagnosis_type == "Pilocytic astrocytoma" ~ "PA",
+diagnosis_type == "Precursor T-ALL" ~ "ALL",
+diagnosis_type == "Anaplastic lymphoma" ~ "AL",
+diagnosis_type == "Craniopharyngioma" ~ "OTH",
+diagnosis_type == "Hemangioendothelioma" ~ "OTH",
+diagnosis_type == "Hodgkins lymphoma" ~ "HL",
+diagnosis_type == "Hodgkin lymohoma" ~ "HL",
+diagnosis_type == "AML - Acute promeylocyt leukemia" ~ "AML",
+diagnosis_type == "Esophagus carcinoma" ~ "OTH",
+diagnosis_type == "Synovial sarcoma" ~ "OTH",
+diagnosis_type == "Carcinoma" ~ "OTH",
+diagnosis_type == "Tumor in cerebellum" ~ "CNS",
+diagnosis_type == "Mixed type precursor T-ALL/AML" ~ "ALL/AML",
+diagnosis_type == "CNS germinom" ~ "CNS",
+diagnosis_type == "Sarcoma" ~ "OTH",
+diagnosis_type == "Acute myeloid leukemia" ~ "AML",
+diagnosis_type == "Optic nerve glioma" ~ "OPG",
+diagnosis_type == "Malignant peripheral nerve sheath tumor" ~ "MPNST",
+diagnosis_type == "Acute promyelocytic leukemia" ~ "APML",
+diagnosis_type == "Small cell carcinoma" ~ "OTH",
+diagnosis_type == "Precursor B-cell acute lymphoblastic leukemia" ~ "ALL",
+diagnosis_type == "Subependymal giant cell astrocytoma" ~ "SEGA",
+diagnosis_type == "Langerhans cell histiocytosis" ~ "LCH",
+diagnosis_type == "T-cell acute lymphoblastic leukemia" ~ "ALL",
+diagnosis_type == "Astrocytoma, Low Grade" ~ "AST",
+diagnosis_type == "Astrocytoma, Pilocytic" ~ "AST",
+diagnosis_type == "Astrocytoma, Subependymal giant cell tumor (SEGA)" ~ "SEGA",
+diagnosis_type == "Bladder Urothelial Carcinoma" ~ "OTH",
+diagnosis_type == "Choroid Plexus Papilloma, atypical" ~ "CPC",
+diagnosis_type == "Clear Cell Sarcoma" ~ "OTH",
+diagnosis_type == "Colon adenocarcinoma" ~ "COLON",
+diagnosis_type == "Dermatofibrosarcoma Protuberans" ~ "OTH",
+diagnosis_type == "Desmoplastic Small-Round-Cell Tumor" ~ "OTH",
+diagnosis_type == "Diffuse Astrocytoma" ~ "LGG",
+diagnosis_type == "Diffuse Glioma" ~ "DMG",
+diagnosis_type == "Ependymoma, Anaplastic" ~ "EPN",
+diagnosis_type == "Epithelioid Sarcoma, Ovary, SMARCB1-deficient / Extrarenal Rhabdoid tumor" ~ "ATRT",
+diagnosis_type == "Ewing Sarcoma" ~ "EWS",
+diagnosis_type == "Ganglioglioma" ~ "GG",
+diagnosis_type == "Ganglioneuroblastoma" ~ "OTH",
+diagnosis_type == "Ganglioneuroblastoma, intermixed-type" ~ "OTH",
+diagnosis_type == "Ganglioneuroma" ~ "OTH",
+diagnosis_type == "Gastric carcinoma with signet ring cell features" ~ "OTH",
+diagnosis_type == "Gastrointestinal Stromal Tumor" ~ "OTH",
+diagnosis_type == "Germ Cell Tumor, Mixed" ~ "OTH",
+diagnosis_type == "Gliobastoma (radiation-induced)" ~ "HGG",
+diagnosis_type == "Glioblastoma Multiforme" ~ "GBM",
+diagnosis_type == "Hepatocellular carcinoma, fibrolamellar variant" ~ "HCC",
+diagnosis_type == "High Grade Carcinoma with Neuroendocrine features" ~ "HGG",
+diagnosis_type == "High grade spindle cell sarcoma with a rhabdomyosarcoma component vs DICER1-negative pleural pulmonary blastoma" ~ "OTH",
+diagnosis_type == "High-Grade Spindle Cell Sarcoma (Breast)" ~ "OTH",
+diagnosis_type == "Immature Teratoma" ~ "OTH",
+diagnosis_type == "Juvenile xanthogranuloma" ~ "OTH",
+diagnosis_type == "Low-Grade Neuroepithelial Tumor" ~ "OTH",
+diagnosis_type == "Malignant Peripheral Nerve Sheath Tumor" ~ "MPNST",
+diagnosis_type == "Malignant peripheral nerve sheath tumor with divergent osteosarcomatous differentiation" ~ "MPNST",
+diagnosis_type == "Meningioma (orbital)" ~ "MEN",
+diagnosis_type == "Nasopharyngeal Carcinoma" ~ "OTH",
+diagnosis_type == "Neuroepithelial Tumor" ~ "NET",
+diagnosis_type == "Osteoma" ~ "OS",
+diagnosis_type == "Renal cell carcinoma, SDHB deficient" ~ "RCC",
+diagnosis_type == "Renal Cell Carcinoma, Translocation-Associated" ~ "RCC",
+diagnosis_type == "Retinoblastoma (Bilateral)" ~ "RB",
+diagnosis_type == "Retinoblastoma (Unilateral)" ~ "RB",
+diagnosis_type == "Rhabdoid Cancer" ~ "ATRT",
+diagnosis_type == "Rhabdoid Tumor, malignant" ~ "ATRT",
+diagnosis_type == "Rhabdomyosarcoma, Alveolar" ~ "RMS",
+diagnosis_type == "Rhabdomyosarcoma, Embryonal" ~ "RMS",
+diagnosis_type == "Rhabdomyosarcoma, Embryonal, Cervix" ~ "RMS",
+#diagnosis_type == "Round cell Sarcoma "Ewing-like", EWSR1-VEZF1 fusion" ~ "EWS",
+diagnosis_type == "Schwannoma, vestibular" ~ "SCH",
+diagnosis_type == "Schwannomas (multiple, including vestibular)" ~ "SCH",
+diagnosis_type == "Sclerosing Epithelioid Fibrosarcoma" ~ "OTH",
+diagnosis_type == "Small Cell Carcinoma of the ovary, hypercalcemic type" ~ "OTH",
+diagnosis_type == "Synovial Sarcoma" ~ "OTH",
+diagnosis_type == "Thyroid Cancer, Papillary" ~ "THY",
+diagnosis_type == "Thyroid Carcinoma, Medullary" ~ "THY",
+diagnosis_type == "Wilms Tumor" ~ "WT",
+diagnosis_type == "Desmoid/Aggressive Fibromatosis (DES)" ~ "DF",
+diagnosis_type == "Craniopharyngioma, Adamantinomatous Type (ACPG)" ~ "OTH",
+diagnosis_type == "Glioblastoma (GB)" ~ "GB",
+diagnosis_type == "High-Grade Glioma, NOS (HGGNOS)" ~ "HHG",
+diagnosis_type == "Ewing Sarcoma (ES)" ~ "EWS",
+diagnosis_type == "Diffuse Intrinsic Pontine Glioma (DIPG)" ~ "DIPG",
+diagnosis_type == "Dysgerminoma (ODYS)" ~ "OTH",
+diagnosis_type == "Ganglioglioma (GNG)" ~ "GG",
+diagnosis_type == "Embryonal Rhabdomyosarcoma (ERMS)" ~ "RMS",
+diagnosis_type == "B-Lymphoblastic Leukemia/Lymphoma, NOS (BLLNOS)" ~ "ALL",
+diagnosis_type == "Mixed Phenotype Acute Leukemia, T/Myeloid, NOS (MPALTNOS)" ~ "ALL/AML",
+diagnosis_type == "B-Lymphoblastic Leukemia/Lymphoma with Hyperdiploidy (BLLHYPER)" ~ "ALL",
+diagnosis_type == "Cutaneous Melanoma (SKCM)" ~ "OTH",
+diagnosis_type == "Retinoblastoma (RBL)" ~ "RB",
+diagnosis_type == "Pilocytic Astrocytoma (PAST)" ~ "AST",
+diagnosis_type == "Papillary Thyroid Carcinoma (THPA)" ~ "THY",
+diagnosis_type == "Desmoplastic Small-Round-Cell Tumor (DSRCT)" ~ "OTH",
+diagnosis_type == "Atypical Teratoid/Rhabdoid Tumor (ATRT)" ~ "ATRT",
+diagnosis_type == "T-Lymphoblastic Leukemia/Lymphoma (TLL)" ~ "ALL",
+diagnosis_type == "Low-Grade Glioma, NOS (LGGNOS)" ~ "LGG",
+diagnosis_type == "B-Lymphoblastic Leukemia/Lymphoma with t(12;21)(p13.2;q22.1); ETV6-RUNX1 (BLLETV6RUNX1)" ~ "ALL",
+diagnosis_type == "Malignant Tumor (MT), adenocarcinoma" ~ "OTH",
+diagnosis_type == "Desmoplastic/Nodular Medulloblastoma (DMBL)" ~ "MB",
+diagnosis_type == "High-Grade Undifferentiated Pleomorphic Sarcoma" ~ "OTH",
+diagnosis_type == "High-Grade Osteosarcoma (HGOS)" ~ "OS",
+diagnosis_type == "MDS with Single Lineage Dysplasia (MDSSLD)" ~ "MDS",
+diagnosis_type == "Neuroblastoma (NBL)" ~ "NB",
+diagnosis_type == "Ganglioneuroblastoma (GNBL)" ~ "OTH",
+diagnosis_type == "Anaplastic Astrocytoma (AASTR)" ~ "AST",
+diagnosis_type == "Medulloblastoma (MBL)" ~ "MB",
+diagnosis_type == "Hepatoblastoma, Wilms'_tumor" ~ "WT",
+diagnosis_type == "NHL" ~ "NHL",
+diagnosis_type == "ALL, Wilms'_tumor, Astrocytoma" ~ "ALL",
+diagnosis_type == "Adrenocortical_tumor" ~ "ACC",
+diagnosis_type == "Rhabdomyosarcoma_Embryonal" ~ "RMS",
+diagnosis_type == "non-Rhabdomyosarcoma" ~ "OTH",
+diagnosis_type == "Neurofibromatosis" ~ "NF",
+diagnosis_type == "Opticusglioma" ~ "OPG",
+diagnosis_type == "Brain_tumor_unpsecified" ~ "OTH",
+diagnosis_type == "Rhabdomyosarcoma_Unspecified" ~ "RMS",
+diagnosis_type == "PNET" ~ "OTH",
+diagnosis_type == "B-ALL" ~ "ALL",
+diagnosis_type == "T-ALL" ~ "ALL",
+diagnosis_type == "T-cell lymphoma" ~ "TCL",
+diagnosis_type == "Plexuscarcinoma" ~ "OTH",
+diagnosis_type == "pilocytic Astrocytoma" ~ "AST",
+diagnosis_type == "pilocystic astrocytoma" ~ "AST",
+diagnosis_type == "Congenital brain tumor" ~ "OTH",
+diagnosis_type == "Clear cell sarcoma of the kidney" ~ "OTH",
+diagnosis_type == "Germcell tumor" ~ "OTH",
+diagnosis_type == "Nephroblastoma" ~ "WT",
+diagnosis_type == "ETMR" ~ "ETMR",
+diagnosis_type == "DLBCL" ~ "OTH",
+diagnosis_type == "ALCL" ~ "OTH",
+diagnosis_type == "T-ALL, B-ALL" ~ "ALL",
+diagnosis_type == "Epithelioid Sarcoma" ~ "OTH",
+diagnosis_type == "Meduloblastoma" ~ "MB"
+  )) %>% 
+  mutate(ont_class = paste0(ontology_cleaned, "_", classification_cleaned)) %>%
+  mutate(ontology_cleaned = if_else(ont_class %in% c("splice_P", "splice_LP"), "pathogenic_splice", ontology_cleaned))
+
+
+
+mut_freq_pancancer_studies <- tibble(gene = character(),
+                                     n_LoF = numeric(),
+                                     n_tested = numeric(),
+                                     n_studies = numeric(),
+                                     obs_can_100k = numeric(),
+                                     n_tested_without_Mody_Oberg = numeric()
+                                     )
+for (X in ADXLR_isolatedcancerrisk_names) {
+# test number of LoF variants in gene
+temp1 <- 
+combined_pancancer_data_cleaned %>%  
+  filter(gene == X,
+         #classification_cleaned %in% c("P", "LP"),
+         ontology_cleaned %in% c("nonsense", "frameshift", "pathogenic_splice")
+         ) %>% 
+  summarise(gene = X, n_LoF = n())
+
+# test number 
+temp2<- 
+combined_pancancer_panels %>% 
+  filter(genes %in% c(X, "panel_not_reported")) %>% 
+  summarise(n_tested = sum(n_total), n_studies = n_distinct(study))
+
+temp3 <- bind_cols(temp1, temp2)
+mut_freq_pancancer_studies <- bind_rows(mut_freq_pancancer_studies, temp3)
+}
+
+mut_freq_pancancer_studies %>% summarize(max(n_tested))
+
+```
+
+```{r proteinpaint_reformatting}
+# this script takes gnomad input and creates a dataformat readable by proteinpaint (https://pecan.stjude.cloud/proteinpaint) (used for mutation in gene plots)
+#ELP1 pLoF comparision script
+#loading pLoF variants from ELP1 in gnomad v2.1
+gnomad_pLoF_ELP1 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000070061_2022_06_17_13_34_12.csv")
+
+# reformatting data for protein paint
+gnomad_pLoF_ELP1_ProteinPaint <-
+gnomad_pLoF_ELP1 %>%
+  group_by(Allele.Count) %>%
+  slice(rep(1:n(), each = Allele.Count)) %>%
+  ungroup() %>%
+  mutate(
+    short_ont = case_when(
+    VEP.Annotation == "stop_gained" ~ "N",
+    VEP.Annotation == "frameshift_variant" ~ "F",
+    VEP.Annotation == "splice_acceptor_variant" ~ "L",
+    VEP.Annotation == "splice_donor_variant" ~ "L"
+    )
+  ) %>%
+  mutate(
+    for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
+  ) %>%
+  select(for_pecan)
+
+#loading pLoF variants from GPR161 in gnomad v2.1
+gnomad_pLoF_GPR161 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000143147_2022_06_20_10_49_15.csv")
+
+# reformatting data for protein paint
+gnomad_pLoF_GPR161_ProteinPaint <-
+gnomad_pLoF_GPR161 %>%
+  filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
+  group_by(Allele.Count) %>%
+  slice(rep(1:n(), each = Allele.Count)) %>%
+  ungroup() %>%
+  mutate(
+    short_ont = case_when(
+    VEP.Annotation == "stop_gained" ~ "N",
+    VEP.Annotation == "frameshift_variant" ~ "F",
+    VEP.Annotation == "splice_acceptor_variant" ~ "L",
+    VEP.Annotation == "splice_donor_variant" ~ "L"
+    )
+  ) %>%
+  mutate(
+    for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
+  ) %>%
+  select(for_pecan)
+
+table(gnomad_pLoF_GPR161$Flags)
+
+#loading pLoF variants from GPR161 in gnomad v2.1
+gnomad_pLoF_MSH2 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000095002_2022_11_01_22_57_58.csv")
+
+# reformatting data for protein paint
+gnomad_pLoF_MSH2_ProteinPaint <-
+gnomad_pLoF_MSH2 %>%
+  filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
+  group_by(Allele.Count) %>%
+  slice(rep(1:n(), each = Allele.Count)) %>%
+  ungroup() %>%
+  mutate(
+    short_ont = case_when(
+    VEP.Annotation == "stop_gained" ~ "N",
+    VEP.Annotation == "frameshift_variant" ~ "F",
+    VEP.Annotation == "splice_acceptor_variant" ~ "L",
+    VEP.Annotation == "splice_donor_variant" ~ "L"
+    )
+  ) %>%
+  mutate(
+    for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
+  ) %>%
+  select(for_pecan)
+
+#loading pLoF variants from GPR161 in gnomad v2.1
+gnomad_pLoF_DIS3L2 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000144535_2022_11_01_23_29_04.csv")
+
+# reformatting data for protein paint
+gnomad_pLoF_DIS3L2_ProteinPaint <-
+gnomad_pLoF_DIS3L2 %>%
+  filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
+  filter(rsIDs %nin% c("rs9678004")) %>% # variant seen in 19,831 alleles; noted as likely not LoF in gnomAD's 'LoF Curation' and filtered out here
+  group_by(Allele.Count) %>%
+  slice(rep(1:n(), each = Allele.Count)) %>%
+  ungroup() %>%
+  mutate(
+    short_ont = case_when(
+    VEP.Annotation == "stop_gained" ~ "N",
+    VEP.Annotation == "frameshift_variant" ~ "F",
+    VEP.Annotation == "splice_acceptor_variant" ~ "L",
+    VEP.Annotation == "splice_donor_variant" ~ "L"
+    )
+  ) %>%
+  mutate(
+    for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
+  ) %>%
+  select(for_pecan)
+```
+
+```{r adult_vs_peds}
+# reformatting and annotating
+adult_pan_cancer_data_PVs_anno <- 
+adult_pan_cancer_data_PVs %>% 
+  filter(VEP_Most_Severe_Consequence %nin% c("missense_variant", "start_lost", "synonymous_variant")) %>% 
+  filter(ACMG_Classification %nin% c("Uncertain Significance")) %>% 
+  mutate(gene = HUGO_Symbol) %>% 
+  left_join(.,canonical_constraint_metrics, by = "gene") %>% 
+  select(gene, oe_lof, oe_lof_upper, oe_lof_lower) %>% 
+  mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "Constrained",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "Likely constrained",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "Likely not constrained",
+    oe_lof_upper >= 0.35 ~ "Not constrained"
+  )) %>% 
+  mutate(age = "adult")
+
+# reformatting peds data to match
+peds_pan_cancer_data_PVs_anno <- 
+combined_pancancer_data_cleaned %>% 
+  filter(ontology_cleaned %in% c("nonsense", "frameshift", "pathogenic_splice")) %>% 
+  left_join(.,canonical_constraint_metrics, by = "gene") %>% 
+  select(gene, oe_lof, oe_lof_upper, oe_lof_lower) %>% 
+  mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "Constrained",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "Likely constrained",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "Likely not constrained",
+    oe_lof_upper >= 0.35 ~ "Not constrained"
+  )) %>% 
+  mutate(age = "child")
+
+adult_vs_peds_combined <- 
+bind_rows(peds_pan_cancer_data_PVs_anno, adult_pan_cancer_data_PVs_anno)
+```
+
+```{r pen_and_de_novo_data}
+# de novo rates and penetrances as reported in the literature, organized into discrete catagories
+de_novo_rates <- 
+pan_cancer_data[["Byrjalsen_pCPS_genes_2021"]] %>% 
+  left_join(., canonical_constraint_metrics, by = "gene") %>% 
+  select(gene, approx_de_novo_from_PMID_35820085, oe_lof_upper, oe_lof, `ADDED: de novo rate group`, `ADDED: Penetrance group`, Inheritance, `ADDED: non_cancer_phenotype`, `ADDED: LoF vs GoF`) %>% 
+  filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)","XLR")) %>%
+    mutate(de_novo_binary = case_when(
+    #`ADDED: de novo rate group` == "Unknown" ~ NA,
+    `ADDED: de novo rate group` == "Very low" ~ "0",
+    `ADDED: de novo rate group` == "Low" ~ "0",
+    `ADDED: de novo rate group` == "High" ~ "1",
+    `ADDED: de novo rate group` == "Very high" ~ "1"
+  )) %>% 
+    mutate(pen_binary = case_when(
+    `ADDED: Penetrance group` == "Moderate" ~ "1",
+    `ADDED: Penetrance group` == "Very low" ~ "0",
+    `ADDED: Penetrance group` == "Low" ~ "0",
+    `ADDED: Penetrance group` == "High" ~ "1",
+    `ADDED: Penetrance group` == "Very high" ~ "1"
+  ))
+```
+
+# All statistical tests
+
+```{r all_stat_tests}
+## pCPS GENES
+
+# compares LOEUF scores for all 85 pCPS genes vs. all genes
+#overall_ttest <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
+
+# compares LOE scores for all 85 pCPS genes vs. all genes
+overall_ttest_loe <- 
+t.test(canonical_constraint_metrics$oe_lof ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
+
+# compares LOEUF scores for monoallelic [AD/XLR] pCPS genes vs. all genes
+ADXLR_vs_all_ttest <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_pCPS_gene, var.equal=T )
+
+# compares LOEUF scores for monoallelic [AD/XLR], LoF pCPS genes vs. all other genes
+ADXLR_LoF_vs_all_ttest <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
+
+# compares LOEUF scores for monoallelic [AD], GoF pCPS genes vs. all other genes
+#ADXLR_LoF_vs_all_ttest <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_GoF_pCPS_gene, var.equal=T )
+
+# compares LOEUF scores for monoallelic [AD/XLR] pCPS genes vs. biallelic [AR] pCPS genes
+ADXLR_vs_AR_ttest <- 
+t.test(peds_CPS_constaint_anno$oe_lof_upper ~ peds_CPS_constaint_anno$ADXLR_pCPS_gene, var.equal=T )
+
+# compares LOE scores for monoallelic [AD/XLR] pCPS genes vs. biallelic [AR] pCPS genes
+ADXLR_vs_AR_ttest_loe <- 
+t.test(peds_CPS_constaint_anno$oe_lof ~ peds_CPS_constaint_anno$ADXLR_pCPS_gene, var.equal=T )
+
+# compares LOEUF scores for biallelic [AR] pCPS genes vs. all genes
+AR_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T )
+
+# compares LOEUF scores for monoallelic [AD/XLR] pCPS genes with isolated cancer risk vs. the remaining monoallelic [AD/XLR]
+#isoADXLR_vs_notisoADXLR_ttest <- 
+t.test(peds_CPS_constaint_anno_ADXLR$oe_lof_upper ~ peds_CPS_constaint_anno_ADXLR$pCPS_isolatedcancerrisk_gene, var.equal=T )
+
+# compares LOEUF scores for monoallelic [AD/XLR] pCPS genes with isolated cancer risk vs. all genes
+#isoADXLR_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$pCPS_isolatedcancerrisk_gene, var.equal=T )
+
+# compares MOEUF scores for monoallelic [AD/XLR] pCPS genes vs. all genes
+mis_ADXLR_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_ADXLR_gene, var.equal=T )
+
+# compares MOEUF scores for monoallelic [AD/XLR] pCPS genes that do not show pLoF constraint vs. all genes
+mis_ADXLRnotcon_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_notcon_gene, var.equal=T )
+
+## aCPS GENES
+
+# compares LOEUF scores of any gene pathogenically pLoF mutated in adult cancer patients vs. pediatric cancer patients
+#adult_vs_peds_ttest <- 
+t.test(adult_vs_peds_combined$oe_lof_upper ~ adult_vs_peds_combined$age, var.equal=T )
+
+# compares LOEUF scores for all 75 pCPS genes vs. all genes
+aCPS_overall_ttest <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
+
+# compares LOE scores for all 75 aCPS genes vs. all genes
+aCPS_overall_ttest_loe <- 
+t.test(canonical_constraint_metrics$oe_lof ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
+
+# compares LOEUF scores for monoallelic [AD/XLR] aCPS genes vs. all genes
+aCPS_ADXLR_vs_all_ttest <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T )
+
+# compares LOEUF scores for biallelic [AR] aCPS genes vs. all genes
+aCPS_AR_vs_all_ttest <- 
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T )
+
+## ALL MISSENSE CONSTRAINT TESTS
+
+# compares MOEUF scores for all pCPS genes vs. all genes
+mis_pCPS_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
+
+# compares MOEUF scores for monoallelic & LoF [AD/XLR] pCPS genes vs. all genes
+#mis_ADXLR_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
+
+# compares MOEUF scores for biallelic [AR] pCPS genes vs. all genes
+mis_AR_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T )
+
+# compares MOEUF scores for monoallelic aCPS genes vs. all genes
+aCPS_mis_aCPS_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
+
+# compares MOEUF scores for monoallelic [AD/XLR] aCPS genes vs. all genes
+aCPS_mis_ADXLR_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T )
+
+# compares MOEUF scores for biallelic [AR] aCPS genes vs. all genes
+aCPS_mis_AR_vs_overall_test <- 
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T )
+
+## DE NOVO AND PENETRANCE
+
+# compares LOEUF scores of pCPS genes associated with (very) high de novo rate vs. those with (very) low de novo rates
+#de_novo_pCPS_genes_high_vs_low <- 
+t.test(de_novo_rates$oe_lof_upper ~ de_novo_rates$de_novo_binary, var.equal=T )
+
+# compares LOEUF scores of pCPS genes associated with (very) high ped cancer penetrance vs. those with (very) low ped cancer penetrance
+#pen_pCPS_genes_high_vs_low <- 
+t.test(de_novo_rates$oe_lof_upper ~ de_novo_rates$pen_binary, var.equal=T )
+
+#comparisons of 53 AD(LoF)/XLR
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
+
+t.test(canonical_constraint_metrics$cds_length ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
+
+# tests using size-matched controls
+sizematched_constraint_metrics_54_for_test <- 
+bind_rows(
+peds_CPS_constaint_anno %>% 
+  filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)", "XLR")) %>% 
+  mutate(pCPS_isolatedcancerrisk_gene = if_else(gene %in% ADXLR_isolatedcancerrisk_names, 1, 0)) %>% 
+  select(gene, oe_lof_upper, oe_mis_upper, cds_length, `ADDED: LoF vs GoF`, pCPS_isolatedcancerrisk_gene),
+sizematched_constraint_metrics_54 %>% 
+  ungroup() %>% 
+  select(gene, oe_lof_upper, oe_mis_upper, cds_length)
+) %>% 
+  mutate(AD_LoF_XLR_gene = if_else(is.na(`ADDED: LoF vs GoF`), 0,1)) %>% 
+  mutate(pCPS_isolatedcancerrisk_gene = if_else(
+    is.na(pCPS_isolatedcancerrisk_gene),0,pCPS_isolatedcancerrisk_gene
+  ))
+
+t.test(sizematched_constraint_metrics_54_for_test$cds_length ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
+
+t.test(sizematched_constraint_metrics_54_for_test$oe_lof_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
+
+t.test(sizematched_constraint_metrics_54_for_test$oe_mis_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
+
+t.test(sizematched_constraint_metrics_54_for_test$oe_lof_upper ~ sizematched_constraint_metrics_54_for_test$pCPS_isolatedcancerrisk_gene, var.equal=T )
+
+## AR pCPS genes showing constraint
+
+# MSH2 in 11 studies vs. gnomAD
+fisher.test(matrix(c(7,
+                     31,
+                     4574,
+                     125533), nrow=2))
+
+
+# WT DIS3L2 vs. gnomAD
+fisher.test(matrix(c(5,
+                     34,
+                     121,
+                     124700), nrow=2))
+
+# number of DC genes in AD LoF vs AR genes
+fisher.test(matrix(c(34,
+                     2,
+                     53-34,
+                     23-2), nrow=2))
+
+# number of DC genes in AD LoF vs AD GoF
+fisher.test(matrix(c(34,
+                     4,
+                     53-34,
+                     9-4), nrow=2))
+
+```
+
+# All figures
+
+## Figure 2
+
+```{r randomset_LoF fig.width=10, fig.height=9, echo = FALSE, warning=F,include=F}
+# random genes plot
+overview_randomset_plot <- 
+sizematched_constraint_metrics_54 %>%
+  ungroup() %>%
+  sample_n(85) %>% 
+  arrange(oe_lof_upper) %>% # First sort by val. This sort the dataframe but NOT the factor levels
+  mutate(gene=factor(gene, levels=gene)) %>%   # This trick update the factor levels
+  bind_cols(#.,
+            plot_bin_means,
+            plot_bin_means_sizematched %>% select(-plot_bin_mean_order)) %>% 
+  ggplot(aes(gene, oe_lof, label = gene)) +
+  geom_pointrange(aes(ymin=oe_lof_lower, ymax=oe_lof_upper), size = 0.25, alpha = 1, color = "grey50") +
+  geom_hline(yintercept=0.35, color = "grey50", linetype ="dotted") +
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper), size = 0.5, color = "grey50", linetype ="longdash") +
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper_sizematched), size = 0.5, color = "blue", linetype ="dashed") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, size = 6, vjust = 0.5, hjust = 1, face = "italic")) +
+  ylim(0,2) +
+  labs(title = "A set of 85 genes randomly selected from 4,680 size-matched genes",
+       subtitle = "Ordered by level of constraint for loss-of-function variants") +
+  ylab('Observed/expected LoF ratio') +
+  xlab('') +
+  theme(axis.title.y = element_text(size = 8))
+
+overview_randomset_plot
+```
+
+```{r allgenes_LoF fig.width=10, fig.height=9, echo = FALSE, warning=F,include=F}
+# plotting all 85 genes and level of LoF constraint
+overview_pCPSall_plot <- 
+peds_CPS_constaint_anno %>% 
+  mutate(`ADDED: LoF vs GoF` = fct_relevel(`ADDED: LoF vs GoF`, "AD (LoF)", "XLR", "AD (GoF)", "AR")) %>%
+  arrange(oe_lof_upper) %>%    # First sort by val. This sort the dataframe but NOT the factor levels
+  mutate(gene=factor(gene, levels=gene)) %>%   # This trick update the factor levels
+  bind_cols(.,
+            plot_bin_means,
+            plot_bin_means_sizematched %>% select(-plot_bin_mean_order)) %>% 
+  ggplot(aes(gene, oe_lof, color = `ADDED: LoF vs GoF`, label = gene)) +
+  geom_pointrange(aes(ymin=oe_lof_lower, ymax=oe_lof_upper), size = 0.25) +
+  geom_hline(yintercept=0.35, color = "grey50", linetype ="dotted") +
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper), size = 0.5, color = "grey50", linetype ="longdash") +
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper_sizematched), size = 0.5, color = "blue", linetype ="dashed") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90, size = 6, vjust = 0.5, hjust = 1, face = "italic")) +
+  scale_color_manual(breaks = c("AD (LoF)", "XLR", "AD (GoF)", "AR"),
+                        values=c("#ef5675", "#7a5195", "#003f5c", "#ffa600")) +
+  ylim(0,2) +
+  labs(title = "The 85 pediatric cancer predispostion syndrome genes",
+       subtitle = "Ordered by level of constraint for loss-of-function variants") +
+  ylab('Observed/expected LoF ratio') +
+  xlab('') +
+  theme(axis.title.y = element_text(size = 8))
+```
+
+```{r bymode_LoF fig.width=10, fig.height=9, echo = FALSE, warning=F,include=F}
+# plotting all 85 genes by mode of inheritance and level of LoF constriant
+overview_pCPSmode_plot <- 
+peds_CPS_constaint_anno %>% 
+  mutate(`ADDED: LoF vs GoF` = fct_relevel(`ADDED: LoF vs GoF`, "AD (LoF)", "XLR", "AD (GoF)", "AR")) %>%
+  arrange(`ADDED: LoF vs GoF`, oe_lof_upper) %>%    # First sort by val. This sort the dataframe but NOT the factor levels
+  mutate(gene=factor(gene, levels=gene)) %>%   # This trick update the factor levels
+  bind_cols(., 
+            plot_bin_means_for_facet,
+            plot_bin_means_for_facet_sizematched %>% select(mean_plot_bin_upper_sizematched)
+            ) %>% 
+  mutate(`ADDED: LoF vs GoF` = fct_relevel(`ADDED: LoF vs GoF`, "AD (LoF)", "XLR", "AD (GoF)", "AR")) %>%
+  ggplot(aes(gene, oe_lof, color = `ADDED: LoF vs GoF`, label = gene, alpha = constrained_bin)) +
+  geom_pointrange(aes(ymin=oe_lof_lower, ymax=oe_lof_upper), size = 0.25) +
+  geom_hline(yintercept=0.35, color = "grey50", linetype ="dotted") +
+  #geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper), size = 0.5, color = "grey50", linetype ="longdash") +
+  scale_alpha_discrete(range = c(0.3, 1)) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90, size = 6, vjust = 0.5, hjust = 1, face = "italic")) +
+  scale_color_manual(breaks = c("AD (LoF)", "XLR", "AD (GoF)", "AR"),
+                        values=c("#ef5675", "#7a5195", "#003f5c", "#ffa600")) +
+  ylim(0,2) +
+  labs(title = "",
+       subtitle = "Grouped by mode of heritance and variant function") +
+  ylab('Observed/expected LoF ratio') +
+  xlab('Gene name') + 
+    facet_grid(.~`ADDED: LoF vs GoF`, scales = "free", switch = "x", space = "free_x") + 
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper), size = 0.5, color = "grey50", linetype ="longdash", alpha = 1) +
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper_sizematched), size = 0.5, color = "blue", linetype ="dashed", alpha = 1) +
+    theme(strip.placement = "outside",
+          strip.background.x=element_rect(color = NA),
+          axis.title.y = element_text(size = 8))
+```
+
+```{r million_test_LoF fig.width=10, fig.height=9, echo = FALSE, warning=F,include=F}
+random_sampling <- function(iter,n,metric,observed_mean) {
+means <- rep(NA, iter)
+for (i in 1:iter){
+  d <- sample(metric, n)
+  means[i] <- mean(d)
+}
+result <- 
+  as_tibble(means) %>%
+  add_row(value = observed_mean, .before = 1)
+return(result)
+}
+
+means_85_lof_upper <- 
+random_sampling(iter = 1000000,
+                n = 85,
+                metric = canonical_constraint_metrics$oe_lof_upper,
+                observed_mean = 0.8)
+
+means_85_sizematched <- 
+random_sampling(iter = 1000000,
+                n = 85,
+                metric = sizematched_constraint_metrics_54$oe_lof_upper,
+                observed_mean = 0.8)
+
+# combining and extracting
+million_plot_for_figure_2 <- 
+means_85_sizematched %>% 
+  add_row(value = 0.37, .before = 1) %>% #adds value for LoF AD/XLR genes
+  ggplot(aes(x = value, y = after_stat(count) + 1, fill= ..x..)) +
+  geom_histogram(bins = 50, pad = TRUE) +
+  geom_histogram(data = means_85_lof_upper, bins = 50, pad = TRUE, fill = "black", alpha = 0.2) +
+  scale_y_log10() +
+  scale_fill_gradient2(name = "", low = yellow, mid = red, high = blue, midpoint = 0.72) +
+  scale_x_continuous(limits = c(0.35,1.25), breaks = seq(0.4,1.2,0.1)) +
+  theme_minimal() +
+  labs(title = "1,000,000 sets of 85 genes randomly selected from 4,680 size-matched genes",
+       subtitle = "With transparent distribution showing 1,000,000 such sets from all genes in the human genome") +
+  ylab('Count') +
+  xlab('Mean LOEUF score')
+
+# new figure 2
+Figure_2_revised <- 
+plot_grid(overview_randomset_plot, 
+          overview_pCPSall_plot, 
+          overview_pCPSmode_plot, 
+          million_plot_for_figure_2, 
+          labels = c("A", "B", "C", "D"), 
+          ncol = 1, rel_heights = c(1,1,1,0.66))
+
+#saves the plot to a given location
+ggsave("C:/Users/usto0005/Desktop/revised_figure_2_million.svg", plot = Figure_2_revised, height = 10, width = 10)
+```
+
+The combined subplots were visualized and arranged using Biorender.
+
+## Figure 3
+
+```{r sankey_plot fig.height=6, fig.width=12, echo = F, warning=F}
+pCPS_sankey <- 
+peds_CPS_constaint_anno %>% 
+    mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "A: Constrained",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "B: Likely constrained",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "C: Likely not constrained",
+    oe_lof_upper >= 0.35 ~ "D: Not constrained"
+  )) %>% 
+    mutate(Inheritance_sankey = case_when(
+    Inheritance == "AD" ~ "A: Autosomal dominant",
+    Inheritance == "XLR" ~ "B: X-linked recessive",
+    Inheritance == "AR" ~ "C: Autosomal recessive"
+  )) %>% 
+    mutate(`ADDED: non_cancer_phenotype` = case_when(
+    `ADDED: non_cancer_phenotype` == "None" ~ "D: None",
+    `ADDED: non_cancer_phenotype` == "Discrete" ~ "C: Discrete",
+    `ADDED: non_cancer_phenotype` == "Moderate" ~ "B: Moderate",
+    `ADDED: non_cancer_phenotype` == "Severe" ~ "A: Severe"
+  )) %>% 
+  filter(!is.na(lof_constrained_evidence)) %>% 
+  select(Inheritance_sankey, lof_constrained_evidence, `ADDED: non_cancer_phenotype`, gene,`ADDED: LoF vs GoF`) %>% 
+  mutate(freq = 1) %>% 
+  arrange(Inheritance_sankey) %>% 
+  gather_set_data(1:3) %>% 
+  ggplot(aes(x = x, id = id, split = y, value = freq)) +
+  geom_parallel_sets(aes(fill = as.factor(`ADDED: LoF vs GoF`)), alpha = 0.7, axis.width = 0.02,
+                     n=100, strength = 0.5) +
+  geom_parallel_sets_axes(axis.width = 0.02, fill = "gray85",
+                          color = "gray50", size = 0.15) +
+  geom_parallel_sets_labels(colour = 'gray35', size = 3, angle = 0, hjust = -0.0, position = position_nudge(x = 0.02), alpha = 0) +
+  scale_fill_manual(values  = c(blue,red,yellow,purple)) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.title.x  = element_blank()
+    )  +
+  labs(title = "The 85 pediatric cancer predispostion syndrome genes",
+       subtitle = "Divided by mode of inheritance, evidence of constraint, and level non-cancer phenotype") +
+  coord_cartesian(xlim=c(1,3.2))
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_3.svg", plot = pCPS_sankey, height = 6, width = 12)
+```
+
+```{r AD(LOF)XLR_vs_exome_sizematch}
+ADXLR_vs_bar_plot <- 
+  bind_rows(
+canonical_constraint_metrics,
+sizematched_constraint_metrics_54 %>% mutate(ADXLR_LoF_pCPS_gene = 2)
+) %>%   
+mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "Constrained",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "Likely constrained",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "Likely not constrained",
+    oe_lof_upper >= 0.35 ~ "Not constrained"
+  )) %>% 
+  count(lof_constrained_evidence, ADXLR_LoF_pCPS_gene) %>% 
+  mutate(weight = if_else(ADXLR_LoF_pCPS_gene == 1, round(n/53,3),
+                          if_else(ADXLR_LoF_pCPS_gene == 2, round(n/4860,3),round(n/19102,3)))) %>% 
+  mutate(ADXLR_LoF_pCPS_gene = fct_relevel(as.factor(ADXLR_LoF_pCPS_gene), "1", "0")) %>% 
+  mutate(lof_constrained_evidence = fct_relevel(lof_constrained_evidence, "Constrained", "Likely constrained", "Likely not constrained", "Not constrained")) %>% 
+  ggplot(aes(lof_constrained_evidence, weight, fill=as.factor(ADXLR_LoF_pCPS_gene))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_text(aes(label=n), vjust=1.6, color="white",
+            position = position_dodge(0.9), size=3.5)+
+  geom_text(aes(label=percent(weight)), vjust=-0.25, color="black",
+            position = position_dodge(0.9), size=3.5)+
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_blank()) +
+  scale_fill_manual(values=c(red, blue, purple)) +
+  ylim(0,0.7) +
+  ylab('Density') +
+  xlab('Evidence level for evolutionary constraint') + 
+    facet_grid(.~lof_constrained_evidence, scales = "free", switch = "x", space = "free_x") + 
+    theme(strip.placement = "outside",
+          strip.background.x=element_rect(color = NA),
+          #strip.text = element_text(size = 4.5, angle = 0),
+          axis.title.y = element_text())
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_3_bar.svg", plot = ADXLR_vs_bar_plot, height = 3, width = 12)
+```
+
+```{r CPS_year_of_discovery plot, fig.width=12, fig.height=4}
+pCPS_ADXLR_year_of_discovery <- 
+nature_CPS %>% 
+  filter(gene %in% ADXLR_LoF_gene_names) %>%
+  left_join(., peds_CPS_constaint_anno, by = "gene") %>% 
+  mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "Constrained",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "Likely constrained",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "Likely not constrained",
+    oe_lof_upper >= 0.35 ~ "Not constrained"
+  )) %>% 
+  select(gene, Date.CPG.discovered, oe_lof_upper, lof_constrained_evidence) %>% 
+  ggplot(aes(Date.CPG.discovered, oe_lof_upper, label = gene, fill = lof_constrained_evidence)) + 
+  geom_point(aes(color = lof_constrained_evidence)) +
+  theme_classic() +
+  scale_fill_manual(values=c("#ffa60080",
+                             "#ef567580",
+                             "#7a519580",
+                             "#003f5c80")) +
+  scale_color_manual(values=c(yellow,
+                              red,
+                              purple,
+                              blue)) +
+    geom_label_repel(size = 2.5,
+                  box.padding = 0.2, 
+                  max.overlaps = Inf, 
+                  fontface = "italic",
+                  min.segment.length = 0,
+                  color = "black",
+                  segment.color = "black") +
+  scale_x_continuous(breaks = seq(2, 2100, by = 2)) +
+  theme(axis.text.x = element_text(angle = -45, hjust = 0)) +
+  ylab('Constraint (LOEUF score)') +
+  xlab('Year of discovery')
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_3_year.svg", plot = pCPS_ADXLR_year_of_discovery, height = 3, width = 15)
+```
+
+The subplots were combined, visualized, and arranged using Biorender.
+
+## Figure 4 (incl. gnomad data import)
+
+```{r gnomad_data_load_and_coverage_filter}
+# loading gnomad coverage data; publicly available from https://storage.googleapis.com/gcp-public-data--gnomad/release/2.1/coverage/exomes/gnomad.exomes.coverage.summary.tsv.bgz
+gnomad_cov <- fread("C:/Users/usto0005/Desktop/GPCG1K_local_clone/gnomad.exomes.coverage.summary.tsv")
+
+# determining loci sufficiently covered in exomes from gnomAD v2.1 for inclusion
+keep_loci <- 
+gnomad_cov[over_20 > 0.70,1:2] %>% #covered more than 20X in more than 70% of individuals
+  mutate(chr_pos = paste0(chrom,"_",pos)) %>% 
+  select(chr_pos)
+
+# gVCF of exomes from gnomAD v2.1; publicly availble from https://storage.googleapis.com/gcp-public-data--gnomad/release/2.1.1/vcf/exomes/gnomad.exomes.r2.1.1.sites.vcf.bgz
+gnomad_LoF <- fread("C:/Users/usto0005/Desktop/GPCG1K_local_clone/gnomad_LoF.tsv") # this data import was subsetted using filter(pLoF == "HC") on a separate HPC cluster. This extracts only variants only considered high confidence by LOFTEE
+gnomad_LoF[, c("chr", "pos", "ref", "alt") := tstrsplit(`variant_ID`, "_", )]
+# removes low-coverage loci
+gnomad_LoF <- 
+gnomad_LoF %>% 
+  mutate(chr_pos = paste0(chr,"_",pos)) %>% 
+  filter(chr_pos %in% keep_loci$chr_pos)
+
+rm("keep_loci", "gnomad_cov")
+gc()
+```
+
+```{r gnomad_obs_function}
+downsample_observed <- function(input_gene) {
+LoF_counts <- 
+gnomad_LoF %>% 
+  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>% 
+  filter(gene == input_gene,
+         AC > 0) %>% 
+  mutate(genotype_number = row_number()) %>% 
+  select(genotype_number,AC)
+
+print(paste0("gene: ", input_gene))
+
+df <- tibble(value = rep(0, 125748))
+
+for (i in 1:nrow(LoF_counts)) {
+  locus_count <- LoF_counts %>% filter(genotype_number == i) %>% pull(AC)
+  indices <- sample(1:125748, locus_count)
+  col_name <- paste0("genotype_", i)
+  df <- df %>% mutate({{col_name}} := ifelse(row_number() %in% indices, 1, 0))
+}
+
+n_tested_for_gene <- 
+mut_freq_pancancer_studies %>% 
+  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
+  mutate(n_tested_without_Mody_Oberg = if_else(n_tested<1000,n_tested-203, n_tested)) %>% 
+  filter(gene == input_gene) %>% pull(n_tested_without_Mody_Oberg)
+
+print(paste0("downsampling to n tested: ",n_tested_for_gene))
+
+n_LoFs_in_tested <- 
+combined_pancancer_data_cleaned %>%  
+  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
+  filter(gene == input_gene,
+         ontology_cleaned %in% c("nonsense", "frameshift", "pathogenic_splice")) %>% 
+  select(study_year, gene, c.HGVS, p.HGVS, ontology_cleaned) %>%
+  print() %>%
+  distinct(c.HGVS, p.HGVS, ontology_cleaned, .keep_all = T) %>% 
+  print() %>%
+  nrow()
+
+downsample_stats <- map_dfr(1:100, function(i) {
+  df %>%
+    select(-value) %>%
+    sample_n(n_tested_for_gene) %>%
+    pivot_longer(cols = starts_with("genotype_"), names_to = "genotype", values_to = "value") %>%
+    filter(value == 1) %>%
+    summarise(gene = input_gene,
+              distinct_loci = n_distinct(genotype),
+              AC_sum = sum(value),
+              run = i,
+              pancan_obs = n_LoFs_in_tested)
+})
+
+print(paste0("observed LoF variants in the ",n_tested_for_gene, " children with cancer tested:"))
+extrapolated_n_LoFs_in_tested <- round(n_LoFs_in_tested*sqrt(100000/n_tested_for_gene),0)
+print(paste0("distinct gnomAD alleles: ", n_distinct(LoF_counts$genotype_number)))
+print(paste0("total gnomAD alleles: ", sum(LoF_counts$AC)))
+print(paste0("case n: ", n_tested_for_gene))
+print(paste0("case n alleles: ", n_tested_for_gene*2))
+print(paste0("case LoF variants: ", n_LoFs_in_tested))
+print(paste0("case extrapolated LoF variants: ", extrapolated_n_LoFs_in_tested))
+
+return(downsample_stats)
+}
+```
+
+```{r obs_data_generation}
+cum_downsample_data <- 
+tibble(gene = character(),
+       distinct_loci = integer(),
+       AC_sum = integer(),
+       run = integer(),
+       pancan_obs = integer())
+
+
+for (x in ADXLR_isolatedcancerrisk_names) { 
+cum_downsample_data <- bind_rows(
+  cum_downsample_data,
+  downsample_observed(x))
+}
+```
+
+```{r plot_obs_vs_downsampled_gnomad}
+## Reordering cum_downsample_data$gene
+cum_downsample_data$gene <- cum_downsample_data$gene %>%
+  fct_relevel(
+    "SMARCA4", "TRIM28", "RB1", "CTR9", "APC", "PAX5", "DICER1",
+    "SMARCE1", "SMARCB1", "FBXW7", "TRIP13", "BAP1", "REST", "TP53",
+    "GPR161", "ELP1", "CDKN2A"
+  ) 
+
+pancan_vs_gnomad_observed_plot <- 
+cum_downsample_data %>% 
+  ggplot(aes(x = distinct_loci)) +
+  geom_bar(color = blue,
+           fill = "white",
+           size = 1) +
+  #geom_bar(aes(x = pancan_obs), fill = blue) +
+  geom_segment(aes(x=pancan_obs, y=25, xend=pancan_obs, yend=5),
+               arrow = arrow(length=unit(.15, 'cm'),type = "closed"),
+               size = 1,
+               color = "#C03830", lineend = "square") +
+  scale_x_continuous(limits = c(-1,50),
+                     breaks = seq(0,50,10),
+                     trans=scales::pseudo_log_trans(base = 10)) +
+  scale_y_continuous(limits = c(0,100),
+                     labels = percent_format(scale = 1),
+                     breaks = c(0,50,100)) +
+  theme_minimal() + 
+    theme(panel.grid.major = element_line(linetype = "solid"),
+    panel.grid.minor = element_line(linetype = "blank"),
+    panel.background = element_rect(fill = NA),
+    plot.background = element_rect(colour = NA)) +
+  labs(x = NULL, y = NULL) +
+  facet_wrap(.~gene, ncol =1) +
+  theme(strip.placement = "outside",
+          strip.background.x= element_blank(),
+          strip.text = element_blank(),
+          axis.title.y = element_text())
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_4_obs.svg", plot = pancan_vs_gnomad_observed_plot, height = 20, width = 4)
+```
+
+```{r 100K_inference_function}
+downsample_inferred <- function(input_gene) {
+LoF_counts <- 
+gnomad_LoF %>% 
+  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>% 
+  filter(gene == input_gene,
+         AC > 0) %>% 
+  mutate(genotype_number = row_number()) %>% 
+  select(genotype_number,AC)
+
+print(paste0("gene: ", input_gene))
+
+df <- tibble(value = rep(0, 125748))
+
+for (i in 1:nrow(LoF_counts)) {
+  locus_count <- LoF_counts %>% filter(genotype_number == i) %>% pull(AC)
+  indices <- sample(1:125748, locus_count)
+  col_name <- paste0("genotype_", i)
+  df <- df %>% mutate({{col_name}} := ifelse(row_number() %in% indices, 1, 0))
+}
+
+n_tested_for_gene <- 
+mut_freq_pancancer_studies %>% 
+  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
+  mutate(n_tested_without_Mody_Oberg = if_else(n_tested<1000,n_tested-203, n_tested)) %>% 
+  filter(gene == input_gene) %>% pull(n_tested_without_Mody_Oberg)
+
+print(paste0("downsampling to 100,000"))
+
+n_LoFs_in_tested <- 
+combined_pancancer_data_cleaned %>%  
+  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
+  filter(gene == input_gene,
+         ontology_cleaned %in% c("nonsense", "frameshift", "pathogenic_splice")) %>% 
+  select(study_year, gene, c.HGVS, p.HGVS, ontology_cleaned) %>%
+  print() %>%
+  distinct(c.HGVS, p.HGVS, ontology_cleaned, .keep_all = T) %>% 
+  print() %>%
+  nrow()
+
+downsample_stats_100K <- map_dfr(1:100, function(i) {
+  df %>%
+    select(-value) %>%
+    sample_n(100000) %>%
+    pivot_longer(cols = starts_with("genotype_"), names_to = "genotype", values_to = "value") %>%
+    filter(value == 1) %>%
+    summarise(gene = input_gene,
+              distinct_loci = n_distinct(genotype),
+              AC_sum = sum(value),
+              run = i,
+              pancan_inf = round(n_LoFs_in_tested*sqrt(100000/n_tested_for_gene),0))
+})
+
+print(paste0("observed LoF variants in the ",n_tested_for_gene, " children with cancer tested:"))
+extrapolated_n_LoFs_in_tested <- round(n_LoFs_in_tested*sqrt(100000/n_tested_for_gene),0)
+print(paste0("distinct gnomAD alleles: ", n_distinct(LoF_counts$genotype_number)))
+print(paste0("total gnomAD alleles: ", sum(LoF_counts$AC)))
+print(paste0("case n: ", n_tested_for_gene))
+print(paste0("case n alleles: ", n_tested_for_gene*2))
+print(paste0("case LoF variants: ", n_LoFs_in_tested))
+print(paste0("case extrapolated LoF variants: ", extrapolated_n_LoFs_in_tested))
+
+return(downsample_stats_100K)
+}
+```
+
+```{r 100K_inference_data_generation}
+cum_downsample_data_inf <- 
+tibble(gene = character(),
+       distinct_loci = integer(),
+       AC_sum = integer(),
+       run = integer(),
+       pancan_inf = integer())
+
+
+for (x in ADXLR_isolatedcancerrisk_names) { 
+cum_downsample_data_inf <- bind_rows(
+  cum_downsample_data_inf,
+  downsample_inferred(x))
+}
+```
+
+```{r plot_inf_vs_100K_gnomad}
+## Reordering cum_downsample_data$gene
+cum_downsample_data_inf$gene <- cum_downsample_data_inf$gene %>%
+  fct_relevel(
+    "SMARCA4", "TRIM28", "RB1", "CTR9", "APC", "PAX5", "DICER1",
+    "SMARCE1", "SMARCB1", "FBXW7", "TRIP13", "BAP1", "REST", "TP53",
+    "GPR161", "ELP1", "CDKN2A"
+  ) 
+
+pancan_vs_gnomad_inferred_plot <- 
+cum_downsample_data_inf %>% 
+  ggplot(aes(x = distinct_loci)) +
+  geom_bar(color = blue,
+           fill = "white",
+           size = 1) +
+  #geom_bar(aes(x = pancan_obs), fill = blue) +
+  geom_segment(aes(x=pancan_inf, y=25, xend=pancan_inf, yend=5),
+               arrow = arrow(length=unit(.15, 'cm'),type = "closed"),
+               size = 1,
+               color = "#C03830", lineend = "square") +
+  scale_x_continuous(limits = c(-1,250),
+                     breaks = c(0,10,25,50,100,200),
+                     trans=scales::pseudo_log_trans(base = 10)) +
+  scale_y_continuous(limits = c(0,100),
+                     labels = percent_format(scale = 1),
+                     breaks = c(0,50,100)) +
+  theme_minimal() + 
+    theme(panel.grid.major = element_line(linetype = "solid"),
+    panel.grid.minor = element_line(linetype = "blank"),
+    panel.background = element_rect(fill = NA),
+    plot.background = element_rect(colour = NA)) +
+  labs(x = NULL, y = NULL) +
+  facet_wrap(.~gene, ncol =1) +
+  theme(strip.placement = "outside",
+          strip.background.x= element_blank(),
+          strip.text = element_blank(),
+          axis.title.y = element_text())
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_4_inf.svg", plot = pancan_vs_gnomad_inferred_plot, height = 20, width = 4)
+```
+
+The figure was designed mainly using Biorender where the plots above were added.
+
+## Figure 5
+
+```{r pancan_plots fig.height=10}
+pancan_plot_data <- 
+left_join(
+peds_CPS_constaint_anno_ADXLR %>%
+  filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)", "XLR")) %>% 
+  mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "Constrained",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "Likely constrained",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "Likely not constrained",
+    oe_lof_upper >= 0.35 ~ "Not constrained"
+  )) %>% 
+  select(gene, oe_lof_upper, lof_constrained_evidence),
+combined_pancancer_data_cleaned %>%  
+  mutate(c.HGVS = replace_na(`c.HGVS`, "not_reported")) %>% 
+  filter(classification_cleaned %in% c("P", "LP"),
+         c.HGVS != "c.3920T>A (p.Ile1307Lys)", #this line filters out the common APC risk factor variant (reported as P by Fiala_2021)
+         ontology_cleaned != "synonymous") %>% 
+  count(gene, ontology_cleaned)
+) %>% 
+  mutate(n = replace_na(n, 0)) %>% 
+  filter(n != 0) %>%
+  group_by(gene) %>%
+  mutate(gene_total = sum(n)) %>%
+  ungroup() %>% 
+  #summarize(sum(n))
+  #distinct(gene)
+  mutate(ontology_cleaned = fct_relevel(ontology_cleaned,
+                                        "frameshift", 
+                                        "nonsense", 
+                                        "pathogenic_splice",
+                                        "deletion", 
+                                        "duplication",
+                                        "inframe",
+                                        "missense"))
+
+ped_mut_freq_plot <- 
+pancan_plot_data %>% 
+  ggplot(aes(reorder(gene,-n, sum), n, fill = ontology_cleaned)) +
+  geom_bar(stat = "identity") +
+  geom_text(y = -2, aes(label = paste0("n = ", gene_total)),
+            hjust=0.5, size = 3
+            ) +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        axis.ticks.x = element_blank(),
+        axis.line = element_blank()) +
+  scale_fill_manual(values=c("#ffa600", "#ff7c43", "#f95d6a","#d45087", "#a05195", "#665191","#2f4b7c", "#003f5c")) +
+  labs(title = "267 pathogenic variants in 53 AD(LoF)/XLR pCPS genes across 4,574 children with cancer",
+       subtitle = "As reported in 11 pediatric pancancer studies [25 genes had no variants reported]") +
+  ylab('count') +
+  xlab('') +
+  coord_cartesian(ylim=c(-2,85))
+
+
+ped_mut_prop_plot <- 
+pancan_plot_data %>% 
+  ggplot(aes(reorder(gene,-n, sum), n, fill = ontology_cleaned)) +
+  geom_bar(stat = "identity", position = "fill") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5, hjust = 1, face = "italic"),
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        axis.line = element_blank()) +
+  scale_fill_manual(values=c("#ffa600", "#ff7c43", "#f95d6a","#d45087", "#a05195", "#665191","#2f4b7c", "#003f5c")) +
+  labs(title = element_blank(),
+       subtitle = "Proportionally by mutational ontology") +
+  ylab('proportion') +
+  xlab(label = element_blank())
+
+ped_mut_freq_plot_by_cons <- 
+pancan_plot_data %>%
+    mutate(lof_constrained_evidence = fct_relevel(lof_constrained_evidence, "Constrained", "Likely constrained", "Likely not constrained", "Not constrained")) %>%
+  ggplot(aes(reorder(gene,oe_lof_upper), n, fill = ontology_cleaned)) +
+  geom_bar(stat = "identity") +
+  geom_text(y = -2, aes(label = paste0("n = ", gene_total)),
+            hjust=0.5, size = 3
+            ) +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        axis.ticks.x = element_blank(),
+        axis.line = element_blank()) +
+  scale_fill_manual(values=c("#ffa600", "#ff7c43", "#f95d6a","#d45087", "#a05195", "#665191","#2f4b7c", "#003f5c")) +
+  labs(title = "",
+       subtitle = "Reordered and grouped by constraint [high to low]") +
+  ylab('number') +
+  xlab(label = element_blank()) +
+  coord_cartesian(ylim=c(-2,85)) +
+      facet_grid(.~lof_constrained_evidence, scales = "free", switch = "x", space = "free_x") + 
+    theme(strip.placement = "outside",
+          strip.background.x= element_blank(),
+          strip.text = element_blank(),
+          axis.title.y = element_text())
+
+ped_mut_prop_plot_by_cons <- 
+pancan_plot_data %>%
+    mutate(lof_constrained_evidence = fct_relevel(lof_constrained_evidence, "Constrained", "Likely constrained", "Likely not constrained", "Not constrained")) %>%
+  ggplot(aes(reorder(gene,oe_lof_upper), n, fill = ontology_cleaned)) +
+  geom_bar(stat = "identity", position = "fill") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5, hjust = 1, face = "italic"),
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        axis.line = element_blank()) +
+  scale_fill_manual(values=c("#ffa600", "#ff7c43", "#f95d6a","#d45087", "#a05195", "#665191","#2f4b7c", "#003f5c")) +
+  #ylim(0,100) +
+  labs(title = element_blank(),
+       subtitle = "Proportionally by mutational ontology") +
+  ylab('proportion') +
+  xlab('Gene name') +
+      facet_grid(.~lof_constrained_evidence, scales = "free", switch = "x", space = "free_x") + 
+    theme(strip.placement = "outside",
+          strip.background.x=element_rect(color = NA),
+          #strip.text = element_text(size = 4.5, angle = 0),
+          axis.title.y = element_text())
+
+Figure_5 <- 
+plot_grid(ped_mut_freq_plot + theme(legend.position="none"),
+          ped_mut_prop_plot + theme(legend.position="none"),
+          ped_mut_freq_plot_by_cons + theme(legend.position="none"),
+          ped_mut_prop_plot_by_cons + theme(legend.position="none"),
+          labels = c("A", "", "B", ""), ncol = 1,
+          rel_heights = c(1, 0.5, 0.95, 0.60))
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_5.svg", plot = Figure_5, height = 12, width = 15)
+```
+
+```{r mis_53_genes_plot fig.width=10, fig.height=9, echo = FALSE, warning=F,include=F}
+# plotting all 84 genes and level of LoF constriant
+mis_pCPSall_plot <- 
+peds_CPS_constaint_anno %>% 
+  filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)", "XLR")) %>% 
+  mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "C",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "LC",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "LnC",
+    oe_lof_upper >= 0.35 ~ "nC"
+  )) %>% 
+  mutate(lof_constrained_evidence = fct_relevel(lof_constrained_evidence, "nC", "LnC", "LC", "C")) %>%
+  arrange(oe_mis_upper) %>%    # First sort by val. This sort the dataframe but NOT the factor levels
+  mutate(gene=factor(gene, levels=gene)) %>%   # This trick update the factor levels
+  #mutate(Inheritance = fct_relevel(Inheritance, "AD", "XLR", "AR")) %>% 
+  bind_cols(., plot_bin_means_mis,
+            plot_bin_means_mis_sizematched %>% select(-plot_bin_mean_order)) %>% 
+  ggplot(aes(gene, oe_mis, color = lof_constrained_evidence, label = gene)) +
+  geom_pointrange(aes(ymin=oe_mis_lower, ymax=oe_mis_upper), size = 0.25) +
+  geom_hline(yintercept=0.35, color = "grey50", linetype ="dotted") +
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper), size = 0.5, color = "grey50", linetype ="longdash") +
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper_sizematched), size = 0.5, color = "blue", linetype ="dashed") +
+  #geom_line(aes(x = plot_bins, y = mean_plot_bin_exact), size = 1, color = "grey50") +
+  #geom_line(aes(x = plot_bins, y = mean_plot_bin_lower), size = 0.5, color = "grey50", linetype ="longdash") +
+  #scale_alpha_discrete(range = c(0.5, 1)) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90, size = 6, vjust = 0.5, hjust = 1, face = "italic")) +
+  scale_color_manual(breaks = c("nC", "LnC", "LC", "C"),
+                        values=c("#003f5c",
+                                "#ffa600",
+                                "#7a5195",
+                                "#ef5675")) +
+  ylim(0,2) +
+  labs(title = "The 53 AD(LoF)/XLR genes associated with high risk of cancer in childhood",
+       subtitle = "Ordered by level of constraint for missense variants") +
+  ylab('Observed/expected missense ratio') +
+  theme(axis.title.y = element_text(size = 8),
+        axis.title.x = element_blank())
+
+
+# plotting all 84 genes by mode of inheritance and level of LoF constriant
+mis_pCPSmode_plot <- 
+peds_CPS_constaint_anno %>% 
+  filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)", "XLR")) %>% 
+  mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "C",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "LC",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "LnC",
+    oe_lof_upper >= 0.35 ~ "nC"
+  )) %>% #count(lof_constrained_evidence)
+  mutate(lof_constrained_evidence = fct_relevel(lof_constrained_evidence, "nC", "LnC", "LC", "C")) %>% 
+  arrange(lof_constrained_evidence, oe_mis_upper) %>%    # First sort by val. This sort the dataframe but NOT the factor levels
+  mutate(gene=factor(gene, levels=gene)) %>%   # This trick update the factor levels
+  bind_cols(., plot_bin_means_for_facet_mis,
+            plot_bin_means_for_facet_mis_sizematched %>% select(mean_plot_bin_upper_sizematched)) %>% 
+  ggplot(aes(gene, oe_mis, color = lof_constrained_evidence, label = gene)) +
+  geom_pointrange(aes(ymin=oe_mis_lower, ymax=oe_mis_upper), size = 0.25) +
+  geom_hline(yintercept=0.35, color = "grey50", linetype ="dotted") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90, size = 6, vjust = 0.5, hjust = 1, face = "italic")) +
+  scale_color_manual(breaks = c("nC", "LnC", "LC", "C"),
+                        values=c("#003f5c",
+                                "#ffa600",
+                                "#7a5195",
+                                "#ef5675")) +
+  ylim(0,2) +
+  labs(title = "",
+       subtitle = "Grouped by evidence of constraint for loss-of-function variants") +
+  ylab('Observed/expected missense ratio') +
+    facet_grid(.~lof_constrained_evidence, scales = "free", switch = "x", space = "free_x") + 
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper), size = 0.5, color = "grey50", linetype ="longdash") +
+  geom_line(aes(x = plot_bin_mean_order, y = mean_plot_bin_upper_sizematched), size = 0.5, color = "blue", linetype ="dashed") +
+    theme(strip.placement = "outside",
+          strip.text = element_blank(),
+          strip.background.x=element_rect(color = NA),
+          axis.title.y = element_text(size = 8),
+          axis.title.x = element_blank())
+
+# combining and extracting
+Figure_5_mis <- 
+plot_grid(mis_pCPSall_plot, mis_pCPSmode_plot, labels = c("", ""), ncol = 2)
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_5_mis.svg", plot = Figure_5_mis, height = 3, width = 14)
+```
+
+```{r million_test_mis}
+means_85_mis_upper <-
+random_sampling(iter = 1000000,
+                n = 85,
+                metric = canonical_constraint_metrics$oe_mis_upper,
+                observed_mean = 0.99)
+
+means_85_mis_upper_sizematched <-
+random_sampling(iter = 1000000,
+                n = 85,
+                metric = sizematched_constraint_metrics_54$oe_mis_upper,
+                observed_mean = 0.99)
+
+million_plot_for_figure_5 <- 
+means_85_mis_upper_sizematched %>%
+  add_row(value = 0.79, .before = 1) %>% #adds value for AD/XLR genes
+  ggplot(aes(x = value, y = after_stat(count) + 1, fill= ..x..)) +
+  geom_histogram(bins = 50, pad = TRUE) +
+  geom_histogram(data = means_85_mis_upper, bins = 50, pad = TRUE, fill = "black", alpha = 0.2) +
+  scale_y_log10() +
+  scale_fill_gradient2(name = "", low = yellow, mid = red, high = blue, midpoint = 0.72) +
+  scale_x_continuous(limits = c(0.35,1.25), breaks = seq(0.4,1.2,0.1)) +
+  theme_minimal() +
+  labs(title = "1,000,000 sets of 85 genes randomly selected from 4,680 size-matched genes",
+       subtitle = "With transparent distribution showing 1,000,000 such sets from all genes in the human genome") +
+  ylab('Count') +
+  xlab('Mean MOEUF score')
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_5_million.svg", plot = million_plot_for_figure_5, height = 2, width = 12)
+```
+
+Figure was rearranged using Biorender, in response to reviewer comments.
+
+## Figure 6
+
+```{r adult_vs_peds_muts_plot}
+cons_in_adult_vs_peds_mut_genes <-   
+bind_rows(peds_pan_cancer_data_PVs_anno, adult_pan_cancer_data_PVs_anno) %>% 
+  count(lof_constrained_evidence, age) %>% 
+  filter(!is.na(lof_constrained_evidence)) %>% 
+  #filter(pCPS_ADXLR_gene == 0) %>% 
+  #group_by(age) %>% summarise(sum = sum(n))
+  mutate(weight = if_else(age == "child", n/441,n/229)) %>% 
+  #mutate(pCPS_ADXLR_gene = fct_relevel(as.factor(pCPS_ADXLR_gene), "1", "0")) %>% 
+  mutate(lof_constrained_evidence = fct_relevel(lof_constrained_evidence, "Constrained", "Likely constrained", "Likely not constrained", "Not constrained")) %>% 
+  #mutate() %>% 
+  ggplot(aes(lof_constrained_evidence, weight, fill=as.factor(age))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_text(aes(label=n), vjust=1.6, color="white",
+            position = position_dodge(0.9), size=3.5)+
+  geom_text(aes(label=percent(weight)), vjust=-0.25, color="black",
+            position = position_dodge(0.9), size=3.5)+
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_blank()) +
+  scale_fill_manual(values=c("#ffa600", "#003f5c")) +
+  #ylim(0,2) +
+  labs(title = "Any germline pathogenic LoF mutations in 10,389 adults (yellow) vs. 4,574 children (blue)",
+       subtitle = "") +
+  ylab('Ratio') +
+  xlab('Evidence level for evolutionary constraint') + 
+    facet_grid(.~lof_constrained_evidence, scales = "free", switch = "x", space = "free_x") + 
+    theme(strip.placement = "outside",
+          strip.background.x=element_rect(color = NA),
+          #strip.text = element_text(size = 4.5, angle = 0),
+          axis.title.y = element_text())
+
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_6.svg", plot = cons_in_adult_vs_peds_mut_genes, height = 4, width = 12)
+```
+
+Final figure was compiled using Biorender.
+
+# Alternate plotting considered, notes, and scraps
+
+```{r GWAS_data_and_plotting}
+# import the excel file with the GWAS data
+GWAS_meta <- import_list("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/GWAS_adult_children.xlsx")
+
+# extract the data from the sheet "Cancer Risk loci (March 2017)"
+GWAS_meta_loci <- as.tibble(GWAS_meta[["Cancer Risk loci (March 2017)"]])
+
+# filter the data to only include genes that are not intergenic or NR
+GWAS_meta_filtered <-  
+GWAS_meta_loci %>% 
+separate_rows("Reported Genes", sep=",") %>% 
+mutate(gene = gsub(" ", "", `Reported Genes`)) %>% 
+  filter(`Reported Genes` != c("NR", "intergenic")) %>% 
+  left_join(.,canonical_constraint_metrics, by = "gene") %>% 
+  #filter(Adult_vs_children == "Children") %>% 
+  distinct(gene, Adult_vs_children, .keep_all = T)
+
+# perform a t-test to compare the constraint scores of the genes with risk SNPs and the genes without risk SNPs
+t.test(GWAS_meta_filtered$oe_lof_upper ~ GWAS_meta_filtered$Adult_vs_children, var.equal=T )
+
+# plot the upper bound of the odds ratio for the loss of function variants
+# for each gene in the GWAS catalog
+GWAS_meta_filtered %>% 
+  ggplot(aes("SNPs", oe_lof_upper, label = gene)) +
+  geom_violin() +
+  geom_text_repel() +
+  facet_wrap(~Adult_vs_children)
+
+# extract the genes from the GWAS catalog
+GWAS_gene_c <- GWAS_meta_filtered %>% filter(Adult_vs_children == "Children") %>% pull(gene)
+GWAS_gene_a <- GWAS_meta_filtered %>% filter(Adult_vs_children == "Adult") %>% pull(gene)
+
+# add a column to the constraint metrics table, indicating whether the gene
+# is in the GWAS catalog
+GWAS_anno_cons <- 
+canonical_constraint_metrics %>% 
+  mutate(risk_SNP = if_else(gene %in% GWAS_gene_c, "child_cancer_risk",
+                            if_else(gene %in% GWAS_gene_a, "adult_cancer_risk", "no_cancer_risk")))
+
+GWAS_anno_cons %>% 
+  ggplot(aes("SNPs", oe_lof_upper, label = gene)) +
+  geom_violin() +
+  #geom_text_repel() +
+  facet_wrap(~risk_SNP)
+
+t.test(GWAS_anno_cons$oe_lof_upper ~ GWAS_anno_cons$risk_SNP, var.equal=T )
+```
+
+
