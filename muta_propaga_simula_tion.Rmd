@@ -1,0 +1,434 @@
+---
+title: "Mutation propagation simulation"
+author: "Ulrik Stoltze"
+date: "27/11/2022"
+output: 
+  html_document: 
+    smart: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = FALSE)
+library(knitr)
+library(stringr)
+library(tidyverse)
+library(rio)
+library(ggthemes)
+library(forcats)
+library(gridExtra)
+library(grid)
+library(zoo)
+library(plotly)
+library(mdthemes)
+library(vroom)
+library(magrittr)
+library(truncnorm)
+library(ggrepel)
+library(scales)
+library(ggtext)
+library(cowplot)
+library(rcompanion)
+library(cli)
+library(devtools)
+library(ggconsort)
+library(splitstackshape)
+library(gtsummary)
+library(ggforce)
+library(viridis)
+library(patchwork)
+"%nin%" <- Negate("%in%")
+options(scipen = 999)
+yellow <- "#ffa600"
+red <- "#ef5675"
+purple <- "#7a5195"
+blue <- "#003f5c"
+values = c(0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.10, 0.15, 0.20, 0.25)
+#values = c(0.0, 0.01, 0.02, 0.03, 0.04, 0.06, 0.08, 0.10)
+percent_values = percent(values, accuracy = 1)
+repro_offspring = 2 # This fertility is the number of reproducing offspring. In a population that is constant, this value must average 1.
+```
+
+```{r squash_function}
+squash_axis <- function(from, to, factor) { 
+    # A transformation function that squashes the range of [from, to] by factor on a given axis 
+
+    # Args:
+    #   from: left end of the axis
+    #   to: right end of the axis
+    #   factor: the compression factor of the range [from, to]
+    #
+    # Returns:
+    #   A transformation called "squash_axis", which is capsulated by trans_new() function
+
+  trans <- function(x) {    
+      # get indices for the relevant regions
+      isq <- x > from & x < to
+      ito <- x >= to
+
+      # apply transformation
+      x[isq] <- from + (x[isq] - from)/factor
+      x[ito] <- from + (to - from)/factor + (x[ito] - to)
+
+      return(x)
+  }
+
+  inv <- function(x) {
+
+      # get indices for the relevant regions
+      isq <- x > from & x < from + (to - from)/factor
+      ito <- x >= from + (to - from)/factor
+
+      # apply transformation
+      x[isq] <- from + (x[isq] - from) * factor
+      x[ito] <- to + (x[ito] - (from + (to - from)/factor))
+
+      return(x)
+  }
+
+# return the transformation
+  return(trans_new("squash_axis", trans, inv))
+}
+gs.pal <- colorRampPalette(c(blue, purple, red, yellow))
+```
+
+# Methods/documentation
+
+## Simulating the propagation of a *de novo* variant 
+
+This script was created to explore/illustrate how strong the negative selective pressure on a *de novo* gene mutation has to be in order to drive mutational constraint of the gene. Any questions or comments may be directed to me, Ulrik Stoltze (ulrik.kristoffer.stoltze@regionh.dk), as the corresponding author of the work. 
+
+The simulation assumes an infinite population of humans, in which an average of two offspring per individual survive to reproduce. This means that the population size remains stable. In this hypothetical situation, we can model the relative survival of variants associated with variable risks of childhood death (here defined as penetrance), and this should be constant if all other factors remain equal in the population. Factors which undoubtedly have affected human pangenetics such as migration, inbreeding and population bottlenecks are not included in the present simulation. Similarly, genotype-phenotype correlations and gene-environment interactions are not considered. Effectively, such factors are all assumed to affect variants equally. Lastly, the model places the initiation of *de novo* variation to time zero, meaning that the actual steady in-flow (initiation)/out-flow (extinction) of newly arisen variants in not considered.
+
+The simulation is designed to run any number of generations (function 1). By running function 1 iteratively any number of variants can be simulated for any number of generations (function 2). By running function 2 iteratively any number of penetrances can be simulated for any number of variants across any number of generations (function 3). Functions 4-6 generate plots of the simulation data and the variant survival. The latter plot can be thought of as a KM-like curve that, rather than showing a group of human's survival across years of life, shows a group of variants' survival across generations, with the event being the extinction of the variant.
+
+```{r function 1}
+mutation_propagation_simulation <- function(fatal_penetrance_of_variant, background_child_mortality, generations_of_propagation) {
+# set penetrance
+pen=fatal_penetrance_of_variant
+# background risk of death in childhood; Volk, T., & Atkinson, J. (2008). Is child death the crucible of human evolution?. Journal of social, evolutionary, and cultural psychology, 2(4), 247.
+b=background_child_mortality
+# set the founding individual, i.e. the 'de novo variant carrier'
+# first the average risk of dying in childhood
+surv_b=ifelse(runif(1, 0.0,1.0)>b,1,0)
+# if the 'de novo variant carrier' survives the background risk of death, (s)he faces to additional risk of dying before reproduction equal to the risk of cancer in childhood (persumed constant thoughout human history).
+surv_temp=ifelse(surv_b==0, 0, ifelse(runif(1, 0.0,1.0)>pen,1,0))
+# throughout human history, populations have remained stable - a random number of offspring for the individual is calculated based on a truncated (i.e. only positive numbers) normal distribution with a mean fertility rate of 4.69 and 3 standard diviations; Bentley, G. R. (1985). Hunter-gatherer energetics and fertility: A reassessment of the! Kung San. Human Ecology, 13(1), 79-109.
+offspring_temp=rpois(1, repro_offspring)
+# the set vaules are compiled in a data frame
+df <- tibble(gen=0, ind=1, carrier=1, surv=surv_temp, offspring_if_surv=offspring_temp)
+sumstats <- tibble(generation = numeric(), total_carriers = numeric(), alive_carriers = numeric(), alive_carriers_offspring = numeric(), penetrance=pen)
+# a for-loop simulates n generations of variant propagation.
+for (i in 1:generations_of_propagation){
+  # set generation number of current loop (starts with 0, the founding de novo carrier)
+  g = i-1
+  # total carriers in the current generation
+  c = df %>% filter(carrier == 1, gen == g) %>% nrow(.)
+  # total surviving carriers in the current generation
+  sc = df %>% filter(surv==1, carrier == 1, gen == g) %>% nrow(.)
+  # total number of offspring by carriers, which will enter into the next generation
+  o = df %>% filter(surv==1, carrier == 1, gen == g) %>% pull(offspring_if_surv) %>% sum
+  sumstats <- sumstats %>% add_row(generation = g, total_carriers = c, alive_carriers = sc, alive_carriers_offspring = o, penetrance=pen)
+  # print(paste0("GEN ", i-1, " - number of carriers:", c))
+  # print(paste0("GEN ", i-1, " - number of SURVIVING carriers:", sc))
+  # print(paste0("GEN ", i-1, " - number of SURVIVING carriers' offspring:", o))
+  # this embeded for-loop adds metrics for each of the offspring, unless there are zero offspring from carriers in which case the variant has died out.
+  if (o==0) {
+    # print(paste0("Mutation has died out in generation: ", i-1))
+    sumstats <- bind_rows(sumstats, tibble(generation = i:40, total_carriers = 0, alive_carriers = 0, alive_carriers_offspring = 0, penetrance=pen))
+    break
+  }
+  if (o>0) {
+    if (c>2000) {
+      # print(paste0("Mutation has stabilized in generation: ", i-1))
+      sumstats <- bind_rows(sumstats, tibble(generation = i:40, total_carriers = c, alive_carriers = sc, alive_carriers_offspring = o, penetrance=pen))
+      break
+    }
+    for (k in 1:o) {
+    # nest generation number
+    gen = i
+    # individual number
+    ind = k
+    # determine if the offspring is a carrier
+    carrier = sample(0:1, 1)
+    # determine if the offspring survives background risk of childhood death
+    surv_b=ifelse(runif(1, 0.0,1.0)>b,1,0)
+    # next, if the offspring survives background risk and is a carrier, then the risk of cancer death is added.
+    surv=ifelse(surv_b==0, 0, ifelse(carrier==1,ifelse(runif(1, 0.0,1.0)>pen,1,0),1))
+    # lastly, the number the offspring expected in the next generation is calculated as described above.
+    offspring_if_surv = rpois(1, repro_offspring)
+    # offspring's data is added to the running data frame
+    df <- df %>% add_row(gen=gen, ind=ind, carrier=carrier,surv=surv, offspring_if_surv = offspring_if_surv)
+    }
+  } 
+} 
+return(list(df, sumstats))
+}
+```
+
+```{r function 2}
+iterative_mut_propagation <- function(iterations, penetrance, background_childhood_mortality, generations_of_propagation) {
+runsumstats <- tibble(run = numeric(), 
+                      generation = numeric(), 
+                      total_carriers = numeric(), 
+                      alive_carriers = numeric(), 
+                      alive_carriers_offspring = numeric())
+for (i in 1:iterations) {
+  run_data <- mutation_propagation_simulation(penetrance, background_childhood_mortality, generations_of_propagation)
+  runsumstats <- run_data %>% extract2(2) %>% mutate(run = i) %>% bind_rows(runsumstats, .)
+  print(paste0("RUN: ", i,". Penetrance: ", penetrance))
+}
+return(runsumstats)
+}
+```
+
+```{r function 3}
+get_sim_data <- function(background_childhood_mortality) {
+  my_sim_data = list()
+  for(i in values) {
+  # runs simulation for variants at all specified penetrances
+  simulation_data <- 
+    iterative_mut_propagation(iterations = 2000,
+                              penetrance = i,
+                              background_childhood_mortality = background_childhood_mortality,
+                              generations_of_propagation = 41)
+  # collects results in list
+  my_sim_data[[length(my_sim_data)+1]] = simulation_data
+  }
+  return(my_sim_data)
+}
+```
+
+```{r function 4}
+plot_simulation <- function(simulation_data, title_input) {
+  
+  p1 <- 
+simulation_data %>% 
+    filter(generation <= 40) %>% 
+    distinct() %>%  
+    rename(variant = run) %>% 
+    group_by(variant) %>% 
+  ggplot(aes(generation, total_carriers)) +
+  geom_line(aes(group = variant, color = variant), size = 2, alpha = 0.25) +
+  #geom_point(aes(group = variant), color = "grey50", size = 1.5, alpha = 0.5) +
+  #scale_color_gradient(low = yellow, high = red) +
+  scale_color_gradientn(colors = c(blue, purple, red, yellow)) +
+  scale_y_continuous(trans='log10', breaks = c(1e0,1e1,1e2,1e3)) +
+  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40)) +
+  coord_cartesian(xlim = c(0, 40), ylim = c(NA, 1000)) +
+  labs(title = title_input) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        plot.title = element_text(size=10)) +
+  ylab('Variant carriers') +
+  xlab('Generation #')
+  
+
+runsumstats_wide <-
+  simulation_data %>% 
+    filter(generation <= 40) %>% 
+    distinct() %>% 
+  mutate(variant_survival = ifelse(total_carriers>0, 1, 0)) %>% 
+  group_by(generation) %>%
+  summarise(n = sum(variant_survival)) %>% 
+  filter(generation %in% c(0,5,10,15,20,25,30,35,40)) %>% 
+  pivot_wider(names_from = generation, values_from = n)
+
+p2 <- 
+  gridExtra::tableGrob(runsumstats_wide, theme = gridExtra::ttheme_minimal(
+    core = list(fg_params=list(cex = 0.75)),
+    colhead = list(fg_params=list(cex = 0.75)),
+    rowhead = list(fg_params=list(cex = 0.75))
+  ), rows = NULL)
+# Set widths/heights to 'fill whatever space I have'
+p2$widths <- unit(rep(1, ncol(p2)), "null")
+p2$heights <- unit(rep(1, nrow(p2)), "null")
+
+p3 <- 
+  ggplot() +
+  annotation_custom(p2) +
+  theme(panel.border = element_blank(),
+        panel.background = element_blank(),
+        )
+
+simulation_plot <- p1 + p3 + plot_layout(ncol = 1, heights = c(20,6))
+
+return(simulation_plot)
+}
+```
+
+```{r funciton 5}
+get_sim_plot <- function(my_sim_data) {
+  nmax = bind_rows(my_sim_data) %>% select(run) %>% max
+  my_sim_plots = list()
+  for(i in 1:length(values)) {
+    sim_data_temp = my_sim_data[[i]]
+  # consctructs plots for variants at all specified penetrances
+  title_input = paste0("Simulation of ",nmax, " variants with ", values[i]*100, "% penetrance.")
+  plot <- 
+  plot_simulation(simulation_data = sim_data_temp,
+                  title_input = title_input)
+  # collects results in list
+       my_sim_plots[[length(my_sim_plots)+1]] = plot
+  }
+  return(my_sim_plots)
+}
+```
+
+```{r function 6}
+get_surv_plot <- function(my_sim_data) {
+  nmax = bind_rows(my_sim_data) %>% select(run) %>% max
+  
+  surv_plot <- 
+  bind_rows(my_sim_data) %>% 
+    filter(generation <= 40) %>% 
+    distinct() %>% 
+  mutate(variant_survival = ifelse(total_carriers>0, 1, 0),
+         pen_gen = paste0(penetrance, "_", generation)) %>% 
+  group_by(pen_gen) %>%
+  summarise(gen = generation, penetrance = penetrance, n = sum(variant_survival)) %>% 
+  distinct(pen_gen, .keep_all = T) %>% 
+  arrange(penetrance, gen) %>%
+  ungroup() %>% 
+  mutate(variant_survival_prop = n/nmax*100) %>%
+  ggplot(aes(gen, variant_survival_prop)) +
+  geom_line(aes(group = penetrance, color = percent(penetrance, accuracy = 1)), size = 2, alpha = 0.5) +
+  scale_colour_manual(values=gs.pal(length(values)), breaks = percent_values) +
+    guides(color=guide_legend(title="Penetrance")) +
+  scale_y_continuous(breaks = c(seq(0,100,25)), 
+                     #trans = squash_axis(10, 100, 20), 
+                     labels = scales::percent_format(scale = 1, accuracy = 1)) +
+  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40)) +
+  coord_cartesian(xlim = c(0, 40), ylim = c(0, 100)) +
+  #labs(title = title_input) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  ylab('Variant survival') +
+  xlab('Generation #') +
+  labs(title = "1,000-year-survival of 10 sets of 2,000 simulated variants with increasing penetrance",
+       subtitle = paste0("Absolute survival. Assumes a stable human population."))
+  
+  insert <-   
+bind_rows(my_sim_data) %>% 
+    filter(generation <= 40) %>% 
+    distinct() %>% 
+  mutate(variant_survival = ifelse(total_carriers>0, 1, 0),
+         pen_gen = paste0(penetrance, "_", generation)) %>% 
+  group_by(pen_gen) %>%
+  summarise(gen = generation, penetrance = penetrance, n = sum(variant_survival)) %>% 
+  distinct(pen_gen, .keep_all = T) %>% 
+  arrange(penetrance, gen) %>%
+  ungroup() %>% 
+  mutate(variant_survival_prop = n/nmax*100) %>%
+  ggplot(aes(gen, variant_survival_prop)) +
+  geom_line(aes(group = penetrance, color = percent(penetrance, accuracy = 1)), size = 2, alpha = 0.5) +
+  scale_colour_manual(values=gs.pal(length(values)), breaks = percent_values) +
+    #guides(color=guide_legend(title="New Legend Title")) +
+  scale_y_continuous(breaks = c(0:10, seq(25,100,25)), 
+                     #trans = squash_axis(10, 100, 20), 
+                     labels = scales::percent_format(scale = 1, accuracy = 1)) +
+  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40)) +
+  coord_cartesian(xlim = c(0, 40), ylim = c(0, 10)) +
+  #labs(title = title_input) +
+  theme_classic() +
+  theme(panel.grid.minor = element_blank(),
+        legend.position = "none") +
+  ylab('Variant survival') +
+  xlab('Generation #')
+  
+var_surv_plot <- 
+  ggdraw() +
+  draw_plot(surv_plot) +
+  draw_plot(insert, x = .3, y = .3, width = .5, height = .5)
+  
+  return(var_surv_plot)
+}
+
+get_rel_surv_plot <- function(my_sim_data) {
+  
+  nmax = bind_rows(my_sim_data) %>% select(run) %>% max
+  
+  neutral_surv <- 
+bind_rows(my_sim_data) %>% 
+  filter(penetrance == 0) %>% 
+  filter(generation <= 40) %>% 
+    distinct() %>%
+  mutate(variant_survival = ifelse(total_carriers>0, 1, 0),
+         pen_gen = paste0(penetrance, "_", generation)) %>% 
+  group_by(pen_gen) %>%
+  summarise(gen = generation, penetrance = penetrance, n = sum(variant_survival)) %>% 
+  distinct(pen_gen, .keep_all = T) %>%
+  ungroup() %>%
+  group_by(gen) %>% 
+  summarize(max_neutral = max(n))
+  
+var_rel_surv_plot <- 
+  bind_rows(my_sim_data) %>% 
+    filter(generation <= 40) %>% 
+    distinct() %>% 
+  mutate(variant_survival = ifelse(total_carriers>0, 1, 0),
+         pen_gen = paste0(penetrance, "_", generation)) %>% 
+  group_by(pen_gen) %>%
+  summarise(gen = generation, penetrance = penetrance, n = sum(variant_survival)) %>% 
+  distinct(pen_gen, .keep_all = T) %>% 
+  arrange(penetrance, gen) %>%
+  ungroup() %>% 
+  right_join(., neutral_surv, by = "gen") %>% 
+  mutate(variant_survival_relative = n/max_neutral*100) %>% 
+    ggplot(aes(gen, variant_survival_relative)) +
+  geom_line(aes(group = penetrance, color = percent(penetrance, accuracy = 1)), size = 2, alpha = 0.5) +
+    geom_hline(yintercept=35, color = "grey50", linetype ="dotted") +
+  scale_colour_manual(values=gs.pal(length(values)), breaks = percent_values) +
+    guides(color=guide_legend(title="Penetrance")) +
+  scale_y_continuous(breaks = c(0,25,50,75,100), labels = scales::percent_format(scale = 1, accuracy = 1)) +
+  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40)) +
+  coord_cartesian(xlim = c(0, 40), ylim = c(0, 100)) +
+  #labs(title = title_input) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  ylab('Variant survival') +
+  xlab('Generation #')
+  
+  return(var_rel_surv_plot)
+}
+```
+
+
+# Results
+
+## Ten sets of 2,000 *de novo* variants with variable childhood cancer penetrance propagated for 1,000 years (40 generations)
+
+By running a 40-generation simulation in 2,000 iterations for each of the penetrances, `r percent_values`, a total of 20,000 variants with increasing penetrance were assessed. The full fates of each variant is given in plots A to J, while the cumulative 1000-year-survival is shown at the top. 
+
+As has long been recognized in the field of population genetics, a neutral (i.e. evolutionarily neither harmful or beneficial) *de novo* variant has a very low chance of surviving or being fixed (i.e. the only genotype in the population), even in small finite populations. This is expected because there is only one carrier to begin with, so if that carrier has no children that both survive to reproductive age and are carriers, the mutation will die out with the founding generation (generation 0; at a mean of two offspring with Poisson distribution this risk is 37%). If the mutation does get passed on to generation 1, the mutation would again be at high risk of extinction, although slighter lower than for generation 0, because some mutations will now exist in more than two individuals. However, the high extinction rate of neutral mutations is irrelevant with regard to constraint as the rate merely dictates the expected number of variants in a gene. Constraint is calculated by observing how many fewer mutations are present in a gene compared to this neutral expectation. Hence the second survival plot show variant survival relative to the neutral (0% penetrance) variants modelled.
+
+From the plots below, we see that, at these parameters, variants with 5% or higher penetrance (selective disadvantage) will have less than 35% of the survival seen for a neutral variant after a millennium of dissemination. In other words, were this hypothetical, highly simplified, model population genetically tested at the 40-generation mark, genes where mutations cause a >=5% selective disadvantage should begin showing strong signs of mutational constraint.
+
+```{r }
+# run sim and make plots
+defined_childhood_mortality = 0.00 # by instead setting offspring to 2, the simulation simply assumes a constant population regardless of background childhood mortality, which could be any number, but is equal for both variant and wildtype carriers.
+#my_sim_data <- get_sim_data(defined_childhood_mortality)
+# precomputed values
+# save(my_sim_data, file = "L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/my_sim_data_2000.RData")
+ load("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/my_sim_data_2000.RData")
+my_plot_data <- get_sim_plot(my_sim_data)
+surv_plot <- get_surv_plot(my_sim_data)
+rel_surv_plot <- get_rel_surv_plot(my_sim_data)
+```
+
+```{r include = TRUE, fig.height=4, fig.width=12}
+surv_plot
+
+rel_surv_plot +
+  labs(subtitle = paste0("Survival relative to neutral variant (0% penetrance). Assumes a stable human population."))
+```
+
+### Simulation plots (20,000 runs)
+
+In the plots below each line shows the fate (number of carriers) of a single variant over 40 generations or 1000 years. The data tables below the plots show the number of variants that remain "alive" or at-risk in the population; in each simulation 2,000 variants are at-risk at generation zero.
+
+```{r include = TRUE, fig.height=12, fig.width=12, warning=FALSE}
+# display plots
+plot_grid(plotlist = my_plot_data, ncol = 2, labels = LETTERS[1:10])
+```
