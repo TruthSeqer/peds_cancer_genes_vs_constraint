@@ -46,7 +46,7 @@ blue <- "#003f5c"
 
 # Introduction
 
-Hello there. With an aim to provide full transparency and reproducibility of the data and analysis for the work *The Evolutionary Impact of Childhood Cancer on the Human Gene Pool* I have uploaded this code to GitHub. The code has several dependencies; 1) R & Rstudio software + the libraries loaded above, 2) the metadata, compiled in a single MS Excel sheet which is published as a supplement to the paper, 3) select data sets available from the links provided in comments in the relevant chunks of this code. As such all data should be available to reproduce the results and main graphical elements of the study. Any questions or comments may be directed to me, Ulrik Stoltze (ulrik.kristoffer.stoltze@regionh.dk), as the corresponding author of the work.
+Hello there. With an aim to provide full transparency and reproducibility of the data and analysis for the work *The Evolutionary Impact of Childhood Cancer on the Human Gene Pool* I have uploaded this code to GitHub. The code has several dependencies; 1) R & Rstudio software + the libraries loaded above, 2) the metadata, compiled in a single MS Excel sheet which is published as a supplement to the paper, 3) select data sets available from the links provided in comments in the relevant chunks of this code. To run this code and reproduce the results and graphs of the paper, the paths of all data imports must be redirected to the relevant file on your system. Any questions or comments may be directed to me, Ulrik Stoltze (ulrik.kristoffer.stoltze@regionh.dk), as the corresponding author of the work.
 
 # Importing data
 
@@ -893,100 +893,101 @@ mut_freq_pancancer_studies %>% summarize(max(n_tested))
 
 ```{r proteinpaint_reformatting}
 # this script takes gnomad input and creates a dataformat readable by proteinpaint (https://pecan.stjude.cloud/proteinpaint) (used for mutation in gene plots)
+## commented out for reference. To run download from gnomad variant browser and replace paths.
 #ELP1 pLoF comparision script
 #loading pLoF variants from ELP1 in gnomad v2.1
-gnomad_pLoF_ELP1 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000070061_2022_06_17_13_34_12.csv")
+## gnomad_pLoF_ELP1 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000070061_2022_06_17_13_34_12.csv")
 
 # reformatting data for protein paint
-gnomad_pLoF_ELP1_ProteinPaint <-
-gnomad_pLoF_ELP1 %>%
-  group_by(Allele.Count) %>%
-  slice(rep(1:n(), each = Allele.Count)) %>%
-  ungroup() %>%
-  mutate(
-    short_ont = case_when(
-    VEP.Annotation == "stop_gained" ~ "N",
-    VEP.Annotation == "frameshift_variant" ~ "F",
-    VEP.Annotation == "splice_acceptor_variant" ~ "L",
-    VEP.Annotation == "splice_donor_variant" ~ "L"
-    )
-  ) %>%
-  mutate(
-    for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
-  ) %>%
-  select(for_pecan)
-
-#loading pLoF variants from GPR161 in gnomad v2.1
-gnomad_pLoF_GPR161 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000143147_2022_06_20_10_49_15.csv")
-
-# reformatting data for protein paint
-gnomad_pLoF_GPR161_ProteinPaint <-
-gnomad_pLoF_GPR161 %>%
-  filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
-  group_by(Allele.Count) %>%
-  slice(rep(1:n(), each = Allele.Count)) %>%
-  ungroup() %>%
-  mutate(
-    short_ont = case_when(
-    VEP.Annotation == "stop_gained" ~ "N",
-    VEP.Annotation == "frameshift_variant" ~ "F",
-    VEP.Annotation == "splice_acceptor_variant" ~ "L",
-    VEP.Annotation == "splice_donor_variant" ~ "L"
-    )
-  ) %>%
-  mutate(
-    for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
-  ) %>%
-  select(for_pecan)
-
-table(gnomad_pLoF_GPR161$Flags)
-
-#loading pLoF variants from GPR161 in gnomad v2.1
-gnomad_pLoF_MSH2 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000095002_2022_11_01_22_57_58.csv")
-
-# reformatting data for protein paint
-gnomad_pLoF_MSH2_ProteinPaint <-
-gnomad_pLoF_MSH2 %>%
-  filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
-  group_by(Allele.Count) %>%
-  slice(rep(1:n(), each = Allele.Count)) %>%
-  ungroup() %>%
-  mutate(
-    short_ont = case_when(
-    VEP.Annotation == "stop_gained" ~ "N",
-    VEP.Annotation == "frameshift_variant" ~ "F",
-    VEP.Annotation == "splice_acceptor_variant" ~ "L",
-    VEP.Annotation == "splice_donor_variant" ~ "L"
-    )
-  ) %>%
-  mutate(
-    for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
-  ) %>%
-  select(for_pecan)
-
-#loading pLoF variants from GPR161 in gnomad v2.1
-gnomad_pLoF_DIS3L2 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000144535_2022_11_01_23_29_04.csv")
-
-# reformatting data for protein paint
-gnomad_pLoF_DIS3L2_ProteinPaint <-
-gnomad_pLoF_DIS3L2 %>%
-  filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
-  filter(rsIDs %nin% c("rs9678004")) %>% # variant seen in 19,831 alleles; noted as likely not LoF in gnomAD's 'LoF Curation' and filtered out here
-  group_by(Allele.Count) %>%
-  slice(rep(1:n(), each = Allele.Count)) %>%
-  ungroup() %>%
-  mutate(
-    short_ont = case_when(
-    VEP.Annotation == "stop_gained" ~ "N",
-    VEP.Annotation == "frameshift_variant" ~ "F",
-    VEP.Annotation == "splice_acceptor_variant" ~ "L",
-    VEP.Annotation == "splice_donor_variant" ~ "L"
-    )
-  ) %>%
-  mutate(
-    for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
-  ) %>%
-  select(for_pecan)
+# gnomad_pLoF_ELP1_ProteinPaint <-
+# gnomad_pLoF_ELP1 %>%
+#   group_by(Allele.Count) %>%
+#   slice(rep(1:n(), each = Allele.Count)) %>%
+#   ungroup() %>%
+#   mutate(
+#     short_ont = case_when(
+#     VEP.Annotation == "stop_gained" ~ "N",
+#     VEP.Annotation == "frameshift_variant" ~ "F",
+#     VEP.Annotation == "splice_acceptor_variant" ~ "L",
+#     VEP.Annotation == "splice_donor_variant" ~ "L"
+#     )
+#   ) %>%
+#   mutate(
+#     for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
+#   ) %>%
+#   select(for_pecan)
+# 
+# #loading pLoF variants from GPR161 in gnomad v2.1
+# gnomad_pLoF_GPR161 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000143147_2022_06_20_10_49_15.csv")
+# 
+# # reformatting data for protein paint
+# gnomad_pLoF_GPR161_ProteinPaint <-
+# gnomad_pLoF_GPR161 %>%
+#   filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
+#   group_by(Allele.Count) %>%
+#   slice(rep(1:n(), each = Allele.Count)) %>%
+#   ungroup() %>%
+#   mutate(
+#     short_ont = case_when(
+#     VEP.Annotation == "stop_gained" ~ "N",
+#     VEP.Annotation == "frameshift_variant" ~ "F",
+#     VEP.Annotation == "splice_acceptor_variant" ~ "L",
+#     VEP.Annotation == "splice_donor_variant" ~ "L"
+#     )
+#   ) %>%
+#   mutate(
+#     for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
+#   ) %>%
+#   select(for_pecan)
+# 
+# table(gnomad_pLoF_GPR161$Flags)
+# 
+# #loading pLoF variants from GPR161 in gnomad v2.1
+# gnomad_pLoF_MSH2 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000095002_2022_11_01_22_57_58.csv")
+# 
+# # reformatting data for protein paint
+# gnomad_pLoF_MSH2_ProteinPaint <-
+# gnomad_pLoF_MSH2 %>%
+#   filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
+#   group_by(Allele.Count) %>%
+#   slice(rep(1:n(), each = Allele.Count)) %>%
+#   ungroup() %>%
+#   mutate(
+#     short_ont = case_when(
+#     VEP.Annotation == "stop_gained" ~ "N",
+#     VEP.Annotation == "frameshift_variant" ~ "F",
+#     VEP.Annotation == "splice_acceptor_variant" ~ "L",
+#     VEP.Annotation == "splice_donor_variant" ~ "L"
+#     )
+#   ) %>%
+#   mutate(
+#     for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
+#   ) %>%
+#   select(for_pecan)
+# 
+# #loading pLoF variants from GPR161 in gnomad v2.1
+# gnomad_pLoF_DIS3L2 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000144535_2022_11_01_23_29_04.csv")
+# 
+# # reformatting data for protein paint
+# gnomad_pLoF_DIS3L2_ProteinPaint <-
+# gnomad_pLoF_DIS3L2 %>%
+#   filter(Flags %nin% c("lc_lof", "lof_flag")) %>%
+#   filter(rsIDs %nin% c("rs9678004")) %>% # variant seen in 19,831 alleles; noted as likely not LoF in gnomAD's 'LoF Curation' and filtered out here
+#   group_by(Allele.Count) %>%
+#   slice(rep(1:n(), each = Allele.Count)) %>%
+#   ungroup() %>%
+#   mutate(
+#     short_ont = case_when(
+#     VEP.Annotation == "stop_gained" ~ "N",
+#     VEP.Annotation == "frameshift_variant" ~ "F",
+#     VEP.Annotation == "splice_acceptor_variant" ~ "L",
+#     VEP.Annotation == "splice_donor_variant" ~ "L"
+#     )
+#   ) %>%
+#   mutate(
+#     for_pecan = paste0(Transcript.Consequence, ";chr", Chromosome, ":", Position, ";", short_ont)
+#   ) %>%
+#   select(for_pecan)
 ```
 
 ```{r adult_vs_peds}
@@ -997,7 +998,7 @@ adult_pan_cancer_data_PVs %>%
   filter(ACMG_Classification %nin% c("Uncertain Significance")) %>% 
   mutate(gene = HUGO_Symbol) %>% 
   left_join(.,canonical_constraint_metrics, by = "gene") %>% 
-  select(gene, oe_lof, oe_lof_upper, oe_lof_lower) %>% 
+  select(gene, oe_lof, oe_lof_upper, oe_lof_lower, cds_length) %>% 
   mutate(lof_constrained_evidence = case_when(
     oe_lof_upper <= 0.35 ~ "Constrained",
     oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "Likely constrained",
@@ -1011,7 +1012,7 @@ peds_pan_cancer_data_PVs_anno <-
 combined_pancancer_data_cleaned %>% 
   filter(ontology_cleaned %in% c("nonsense", "frameshift", "pathogenic_splice")) %>% 
   left_join(.,canonical_constraint_metrics, by = "gene") %>% 
-  select(gene, oe_lof, oe_lof_upper, oe_lof_lower) %>% 
+  select(gene, oe_lof, oe_lof_upper, oe_lof_lower, cds_length) %>% 
   mutate(lof_constrained_evidence = case_when(
     oe_lof_upper <= 0.35 ~ "Constrained",
     oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "Likely constrained",
@@ -1029,7 +1030,7 @@ bind_rows(peds_pan_cancer_data_PVs_anno, adult_pan_cancer_data_PVs_anno)
 de_novo_rates <- 
 pan_cancer_data[["Byrjalsen_pCPS_genes_2021"]] %>% 
   left_join(., canonical_constraint_metrics, by = "gene") %>% 
-  select(gene, approx_de_novo_from_PMID_35820085, oe_lof_upper, oe_lof, `ADDED: de novo rate group`, `ADDED: Penetrance group`, Inheritance, `ADDED: non_cancer_phenotype`, `ADDED: LoF vs GoF`) %>% 
+  select(gene, approx_de_novo_from_PMID_35820085, oe_lof_upper, oe_lof, `ADDED: de novo rate group`, `ADDED: Penetrance group`, Inheritance, `ADDED: non_cancer_phenotype`, `ADDED: LoF vs GoF`, cds_length) %>% 
   filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)","XLR")) %>%
     mutate(de_novo_binary = case_when(
     #`ADDED: de novo rate group` == "Unknown" ~ NA,
@@ -1054,114 +1055,114 @@ pan_cancer_data[["Byrjalsen_pCPS_genes_2021"]] %>%
 
 # compares LOEUF scores for all 85 pCPS genes vs. all genes
 #overall_ttest <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
 
 # compares LOE scores for all 85 pCPS genes vs. all genes
 overall_ttest_loe <- 
-t.test(canonical_constraint_metrics$oe_lof ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
 
 # compares LOEUF scores for monoallelic [AD/XLR] pCPS genes vs. all genes
 ADXLR_vs_all_ttest <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_pCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_pCPS_gene, var.equal=T )
 
 # compares LOEUF scores for monoallelic [AD/XLR], LoF pCPS genes vs. all other genes
 ADXLR_LoF_vs_all_ttest <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T, exact = TRUE)
 
 # compares LOEUF scores for monoallelic [AD], GoF pCPS genes vs. all other genes
 #ADXLR_LoF_vs_all_ttest <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_GoF_pCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_GoF_pCPS_gene, var.equal=T )
 
 # compares LOEUF scores for monoallelic [AD/XLR] pCPS genes vs. biallelic [AR] pCPS genes
 ADXLR_vs_AR_ttest <- 
-t.test(peds_CPS_constaint_anno$oe_lof_upper ~ peds_CPS_constaint_anno$ADXLR_pCPS_gene, var.equal=T )
+wilcox.test(peds_CPS_constaint_anno$oe_lof_upper ~ peds_CPS_constaint_anno$ADXLR_pCPS_gene, var.equal=T )
 
 # compares LOE scores for monoallelic [AD/XLR] pCPS genes vs. biallelic [AR] pCPS genes
 ADXLR_vs_AR_ttest_loe <- 
-t.test(peds_CPS_constaint_anno$oe_lof ~ peds_CPS_constaint_anno$ADXLR_pCPS_gene, var.equal=T )
+wilcox.test(peds_CPS_constaint_anno$oe_lof ~ peds_CPS_constaint_anno$ADXLR_pCPS_gene, var.equal=T )
 
 # compares LOEUF scores for biallelic [AR] pCPS genes vs. all genes
-AR_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T )
+#AR_vs_overall_test <- 
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T )
 
 # compares LOEUF scores for monoallelic [AD/XLR] pCPS genes with isolated cancer risk vs. the remaining monoallelic [AD/XLR]
 #isoADXLR_vs_notisoADXLR_ttest <- 
-t.test(peds_CPS_constaint_anno_ADXLR$oe_lof_upper ~ peds_CPS_constaint_anno_ADXLR$pCPS_isolatedcancerrisk_gene, var.equal=T )
+wilcox.test(peds_CPS_constaint_anno_ADXLR$oe_lof_upper ~ peds_CPS_constaint_anno_ADXLR$pCPS_isolatedcancerrisk_gene, var.equal=T )
+wilcox.test(peds_CPS_constaint_anno_ADXLR$cds_length ~ peds_CPS_constaint_anno_ADXLR$pCPS_isolatedcancerrisk_gene, var.equal=T )
 
 # compares LOEUF scores for monoallelic [AD/XLR] pCPS genes with isolated cancer risk vs. all genes
 #isoADXLR_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$pCPS_isolatedcancerrisk_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$pCPS_isolatedcancerrisk_gene, var.equal=T )
 
 # compares MOEUF scores for monoallelic [AD/XLR] pCPS genes vs. all genes
-mis_ADXLR_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_ADXLR_gene, var.equal=T )
+#mis_ADXLR_vs_overall_test <- 
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_ADXLR_gene, var.equal=T )
 
 # compares MOEUF scores for monoallelic [AD/XLR] pCPS genes that do not show pLoF constraint vs. all genes
-mis_ADXLRnotcon_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_notcon_gene, var.equal=T )
+#mis_ADXLRnotcon_vs_overall_test <- 
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_notcon_gene, var.equal=T )
 
 ## aCPS GENES
 
 # compares LOEUF scores of any gene pathogenically pLoF mutated in adult cancer patients vs. pediatric cancer patients
 #adult_vs_peds_ttest <- 
-t.test(adult_vs_peds_combined$oe_lof_upper ~ adult_vs_peds_combined$age, var.equal=T )
+wilcox.test(adult_vs_peds_combined$oe_lof_upper ~ adult_vs_peds_combined$age, var.equal=T )
+wilcox.test(adult_vs_peds_combined$cds_length  ~ adult_vs_peds_combined$age, var.equal=T )
+lm(oe_lof_upper ~ cds_length + age, data = adult_vs_peds_combined) %>% summary()
 
 # compares LOEUF scores for all 75 pCPS genes vs. all genes
 aCPS_overall_ttest <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
 
 # compares LOE scores for all 75 aCPS genes vs. all genes
 aCPS_overall_ttest_loe <- 
-t.test(canonical_constraint_metrics$oe_lof ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
 
 # compares LOEUF scores for monoallelic [AD/XLR] aCPS genes vs. all genes
-aCPS_ADXLR_vs_all_ttest <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T )
+#aCPS_ADXLR_vs_all_ttest <- 
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T )
 
 # compares LOEUF scores for biallelic [AR] aCPS genes vs. all genes
-aCPS_AR_vs_all_ttest <- 
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T )
+#aCPS_AR_vs_all_ttest <- 
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T )
 
 ## ALL MISSENSE CONSTRAINT TESTS
 
 # compares MOEUF scores for all pCPS genes vs. all genes
-mis_pCPS_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
+#mis_pCPS_vs_overall_test <- 
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
 
 # compares MOEUF scores for monoallelic & LoF [AD/XLR] pCPS genes vs. all genes
 #mis_ADXLR_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
 
 # compares MOEUF scores for biallelic [AR] pCPS genes vs. all genes
-mis_AR_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T )
+#mis_AR_vs_overall_test <- 
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T )
 
 # compares MOEUF scores for monoallelic aCPS genes vs. all genes
 aCPS_mis_aCPS_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$aCPS_gene, var.equal=T )
 
 # compares MOEUF scores for monoallelic [AD/XLR] aCPS genes vs. all genes
-aCPS_mis_ADXLR_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T )
+#aCPS_mis_ADXLR_vs_overall_test <- 
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T )
 
 # compares MOEUF scores for biallelic [AR] aCPS genes vs. all genes
-aCPS_mis_AR_vs_overall_test <- 
-t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T )
+#aCPS_mis_AR_vs_overall_test <- 
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T )
 
 ## DE NOVO AND PENETRANCE
-
-# compares LOEUF scores of pCPS genes associated with (very) high de novo rate vs. those with (very) low de novo rates
-#de_novo_pCPS_genes_high_vs_low <- 
-t.test(de_novo_rates$oe_lof_upper ~ de_novo_rates$de_novo_binary, var.equal=T )
-
+lm(oe_lof_upper ~ cds_length + pen_binary, data = de_novo_rates) %>% summary()
+lm(oe_lof_upper ~ cds_length + de_novo_binary, data = de_novo_rates) %>% summary()
 # compares LOEUF scores of pCPS genes associated with (very) high ped cancer penetrance vs. those with (very) low ped cancer penetrance
 #pen_pCPS_genes_high_vs_low <- 
-t.test(de_novo_rates$oe_lof_upper ~ de_novo_rates$pen_binary, var.equal=T )
+wilcox.test(de_novo_rates$oe_lof_upper ~ de_novo_rates$pen_binary, var.equal=T )
 
 #comparisons of 53 AD(LoF)/XLR
-t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
 
-t.test(canonical_constraint_metrics$cds_length ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
+wilcox.test(canonical_constraint_metrics$cds_length ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T )
 
 # tests using size-matched controls
 sizematched_constraint_metrics_54_for_test <- 
@@ -1179,13 +1180,13 @@ sizematched_constraint_metrics_54 %>%
     is.na(pCPS_isolatedcancerrisk_gene),0,pCPS_isolatedcancerrisk_gene
   ))
 
-t.test(sizematched_constraint_metrics_54_for_test$cds_length ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
+wilcox.test(sizematched_constraint_metrics_54_for_test$cds_length ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
 
-t.test(sizematched_constraint_metrics_54_for_test$oe_lof_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
+wilcox.test(sizematched_constraint_metrics_54_for_test$oe_lof_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
 
-t.test(sizematched_constraint_metrics_54_for_test$oe_mis_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
+wilcox.test(sizematched_constraint_metrics_54_for_test$oe_mis_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T )
 
-t.test(sizematched_constraint_metrics_54_for_test$oe_lof_upper ~ sizematched_constraint_metrics_54_for_test$pCPS_isolatedcancerrisk_gene, var.equal=T )
+wilcox.test(sizematched_constraint_metrics_54_for_test$oe_lof_upper ~ sizematched_constraint_metrics_54_for_test$pCPS_isolatedcancerrisk_gene, var.equal=T )
 
 ## AR pCPS genes showing constraint
 
@@ -1521,250 +1522,109 @@ rm("keep_loci", "gnomad_cov")
 gc()
 ```
 
-```{r gnomad_obs_function}
-downsample_observed <- function(input_gene) {
-LoF_counts <- 
-gnomad_LoF %>% 
-  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>% 
-  filter(gene == input_gene,
-         AC > 0) %>% 
-  mutate(genotype_number = row_number()) %>% 
-  select(genotype_number,AC)
+```{r downsampling_import}
+# loading precomputed downsampling
+downsampled_gnomAD <- vroom("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/gnomad.v2.1.1.lof_metrics.downsamplings.txt")
 
-print(paste0("gene: ", input_gene))
+downsampled_gnomAD <- downsampled_gnomAD %>% filter(canonical == TRUE)
 
-df <- tibble(value = rep(0, 125748))
+gnomad_precomputed_downsample_sizes <- downsampled_gnomAD %>% filter(gene == "TP53", pop == "global") %>% select(downsampling)
+```
 
-for (i in 1:nrow(LoF_counts)) {
-  locus_count <- LoF_counts %>% filter(genotype_number == i) %>% pull(AC)
-  indices <- sample(1:125748, locus_count)
-  col_name <- paste0("genotype_", i)
-  df <- df %>% mutate({{col_name}} := ifelse(row_number() %in% indices, 1, 0))
-}
-
+```{r downsampling_for_pancan}
+downsampling_plot <- function(input_gene) {
+  
 n_tested_for_gene <- 
 mut_freq_pancancer_studies %>% 
   mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
   mutate(n_tested_without_Mody_Oberg = if_else(n_tested<1000,n_tested-203, n_tested)) %>% 
   filter(gene == input_gene) %>% pull(n_tested_without_Mody_Oberg)
 
-print(paste0("downsampling to n tested: ",n_tested_for_gene))
-
-n_LoFs_in_tested <- 
-combined_pancancer_data_cleaned %>%  
-  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
+LoFs_in_tested <- 
+combined_pancancer_data_cleaned %>% mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
+    mutate(HGVS_for_distinct = case_when(
+    c.HGVS == "NM_000546.5:c.586C>T" & gene == "TP53" ~ "c.586C>T",
+    c.HGVS == "ENST00000269305.4:c.586C>T" & gene == "TP53" ~ "c.586C>T",
+    p.HGVS == "R196*" & gene == "TP53" ~ "c.586C>T",
+    p.HGVS == "R445*" & gene == "RB1" ~ "c.1333C>T",
+    c.HGVS == "c.1333C>T" & gene == "RB1" ~ "c.1333C>T",
+    c.HGVS == "c.1072C>T (p.Arg358*)" & gene == "RB1" ~ "c.1072C>T",
+    c.HGVS == "c.1072C>T(p.Arg358*) - mosaic" & gene == "RB1" ~ "c.1072C>T",
+    c.HGVS == "c.1072C>T" & gene == "RB1" ~ "c.1072C>T",
+    c.HGVS == "c.1215+1G>A" & gene == "RB1" ~ "c.1215+1G>A",
+    c.HGVS == "NM_000321.2:c.1215+1G>A" & gene == "RB1" ~ "c.1215+1G>A",
+    TRUE ~ as.character(row_number())
+  )) %>%  
   filter(gene == input_gene,
          ontology_cleaned %in% c("nonsense", "frameshift", "pathogenic_splice")) %>% 
-  select(study_year, gene, c.HGVS, p.HGVS, ontology_cleaned) %>%
-  print() %>%
-  distinct(c.HGVS, p.HGVS, ontology_cleaned, .keep_all = T) %>% 
-  print() %>%
-  nrow()
+  select(study_year, gene, c.HGVS, p.HGVS, ontology_cleaned, HGVS_for_distinct) #%>% select(c.HGVS) %>% clipr::write_clip()
 
-downsample_stats <- map_dfr(1:100, function(i) {
-  df %>%
-    select(-value) %>%
-    sample_n(n_tested_for_gene) %>%
-    pivot_longer(cols = starts_with("genotype_"), names_to = "genotype", values_to = "value") %>%
-    filter(value == 1) %>%
-    summarise(gene = input_gene,
-              distinct_loci = n_distinct(genotype),
-              AC_sum = sum(value),
-              run = i,
-              pancan_obs = n_LoFs_in_tested)
-})
+n_LoFs_in_tested <- LoFs_in_tested %>% nrow()
 
-print(paste0("observed LoF variants in the ",n_tested_for_gene, " children with cancer tested:"))
-extrapolated_n_LoFs_in_tested <- round(n_LoFs_in_tested*sqrt(100000/n_tested_for_gene),0)
-print(paste0("distinct gnomAD alleles: ", n_distinct(LoF_counts$genotype_number)))
-print(paste0("total gnomAD alleles: ", sum(LoF_counts$AC)))
-print(paste0("case n: ", n_tested_for_gene))
-print(paste0("case n alleles: ", n_tested_for_gene*2))
-print(paste0("case LoF variants: ", n_LoFs_in_tested))
-print(paste0("case extrapolated LoF variants: ", extrapolated_n_LoFs_in_tested))
+sizes <- gnomad_precomputed_downsample_sizes %>% 
+  add_row(downsampling = n_tested_for_gene) %>% 
+  filter(downsampling <= n_tested_for_gene)
 
-return(downsample_stats)
+pancan_pop <-
+LoFs_in_tested %>% select(HGVS_for_distinct) %>%
+  bind_rows(tibble(HGVS_for_distinct = rep(NA, n_tested_for_gene-n_LoFs_in_tested)))
+
+pancan_DS <- 
+tibble(
+  gene = as.character(),
+  size = as.numeric(),
+  distinct_LoFs = as.numeric()
+)
+
+for (size in rev(sizes$downsampling)) {
+  pancan_pop <- pancan_pop %>% sample_n(size = size)
+  n_LoF <- na.omit(pancan_pop %>% distinct()) %>% nrow
+  print(paste0(size, ":", n_LoF))
+  pancan_DS <- pancan_DS %>% add_row(gene = input_gene,
+                                     size = size,
+                                     distinct_LoFs = n_LoF
+                                     )
 }
-```
 
-```{r obs_data_generation}
-cum_downsample_data <- 
-tibble(gene = character(),
-       distinct_loci = integer(),
-       AC_sum = integer(),
-       run = integer(),
-       pancan_obs = integer())
+pancan_DS
 
-
-for (x in ADXLR_isolatedcancerrisk_names) { 
-cum_downsample_data <- bind_rows(
-  cum_downsample_data,
-  downsample_observed(x))
-}
-```
-
-```{r plot_obs_vs_downsampled_gnomad}
-## Reordering cum_downsample_data$gene
-cum_downsample_data$gene <- cum_downsample_data$gene %>%
-  fct_relevel(
-    "SMARCA4", "TRIM28", "RB1", "CTR9", "APC", "PAX5", "DICER1",
-    "SMARCE1", "SMARCB1", "FBXW7", "TRIP13", "BAP1", "REST", "TP53",
-    "GPR161", "ELP1", "CDKN2A"
-  ) 
-
-pancan_vs_gnomad_observed_plot <- 
-cum_downsample_data %>% 
-  ggplot(aes(x = distinct_loci)) +
-  geom_bar(color = blue,
-           fill = "white",
-           size = 1) +
-  #geom_bar(aes(x = pancan_obs), fill = blue) +
-  geom_segment(aes(x=pancan_obs, y=25, xend=pancan_obs, yend=5),
-               arrow = arrow(length=unit(.15, 'cm'),type = "closed"),
-               size = 1,
-               color = "#C03830", lineend = "square") +
-  scale_x_continuous(limits = c(-1,50),
-                     breaks = seq(0,50,10),
-                     trans=scales::pseudo_log_trans(base = 10)) +
-  scale_y_continuous(limits = c(0,100),
-                     labels = percent_format(scale = 1),
-                     breaks = c(0,50,100)) +
-  theme_minimal() + 
-    theme(panel.grid.major = element_line(linetype = "solid"),
-    panel.grid.minor = element_line(linetype = "blank"),
-    panel.background = element_rect(fill = NA),
-    plot.background = element_rect(colour = NA)) +
-  labs(x = NULL, y = NULL) +
-  facet_wrap(.~gene, ncol =1) +
-  theme(strip.placement = "outside",
-          strip.background.x= element_blank(),
-          strip.text = element_blank(),
-          axis.title.y = element_text())
-
-ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_4_obs.svg", plot = pancan_vs_gnomad_observed_plot, height = 20, width = 4)
-```
-
-```{r 100K_inference_function}
-downsample_inferred <- function(input_gene) {
-LoF_counts <- 
-gnomad_LoF %>% 
-  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>% 
+gnomAD_DS <- 
+downsampled_gnomAD %>% mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
   filter(gene == input_gene,
-         AC > 0) %>% 
-  mutate(genotype_number = row_number()) %>% 
-  select(genotype_number,AC)
+         pop == "global") %>% mutate(obs_lof = if_else(is.na(obs_lof), 0, obs_lof)
+                                                          )
 
-print(paste0("gene: ", input_gene))
+plot <- 
+gnomAD_DS %>% 
+ggplot() +
+  geom_line(aes(downsampling, exp_lof), linewidth = 1, color = "grey80") +
+  geom_point(aes(downsampling, exp_lof), color ="grey60") +
+  geom_point(aes(downsampling, obs_lof, group = pop), color = yellow) +
+  geom_line(aes(downsampling, obs_lof), linewidth = 1, color = yellow) +
+  geom_point(data = pancan_DS, aes(size, distinct_LoFs), color = red) +
+  geom_line(data = pancan_DS, aes(size, distinct_LoFs), linewidth = 1, color = red) +
+  scale_x_continuous(trans = "log2",
+                     limits = c(125, 128000),
+                     breaks = c(125, 250, 500, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000)) +
+  scale_y_continuous(trans = "log2",
+                     limits = c(1, 64),
+                     breaks = c(1, 2, 4, 8, 16, 32, 64)) +
+  theme_classic() +
+  ylab('Distinct LoF variants') +
+  xlab('Sample size') +
+  theme(axis.title.y = element_text(size = 8))
 
-df <- tibble(value = rep(0, 125748))
-
-for (i in 1:nrow(LoF_counts)) {
-  locus_count <- LoF_counts %>% filter(genotype_number == i) %>% pull(AC)
-  indices <- sample(1:125748, locus_count)
-  col_name <- paste0("genotype_", i)
-  df <- df %>% mutate({{col_name}} := ifelse(row_number() %in% indices, 1, 0))
+return(plot)
 }
 
-n_tested_for_gene <- 
-mut_freq_pancancer_studies %>% 
-  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
-  mutate(n_tested_without_Mody_Oberg = if_else(n_tested<1000,n_tested-203, n_tested)) %>% 
-  filter(gene == input_gene) %>% pull(n_tested_without_Mody_Oberg)
-
-print(paste0("downsampling to 100,000"))
-
-n_LoFs_in_tested <- 
-combined_pancancer_data_cleaned %>%  
-  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>%
-  filter(gene == input_gene,
-         ontology_cleaned %in% c("nonsense", "frameshift", "pathogenic_splice")) %>% 
-  select(study_year, gene, c.HGVS, p.HGVS, ontology_cleaned) %>%
-  print() %>%
-  distinct(c.HGVS, p.HGVS, ontology_cleaned, .keep_all = T) %>% 
-  print() %>%
-  nrow()
-
-downsample_stats_100K <- map_dfr(1:100, function(i) {
-  df %>%
-    select(-value) %>%
-    sample_n(100000) %>%
-    pivot_longer(cols = starts_with("genotype_"), names_to = "genotype", values_to = "value") %>%
-    filter(value == 1) %>%
-    summarise(gene = input_gene,
-              distinct_loci = n_distinct(genotype),
-              AC_sum = sum(value),
-              run = i,
-              pancan_inf = round(n_LoFs_in_tested*sqrt(100000/n_tested_for_gene),0))
-})
-
-print(paste0("observed LoF variants in the ",n_tested_for_gene, " children with cancer tested:"))
-extrapolated_n_LoFs_in_tested <- round(n_LoFs_in_tested*sqrt(100000/n_tested_for_gene),0)
-print(paste0("distinct gnomAD alleles: ", n_distinct(LoF_counts$genotype_number)))
-print(paste0("total gnomAD alleles: ", sum(LoF_counts$AC)))
-print(paste0("case n: ", n_tested_for_gene))
-print(paste0("case n alleles: ", n_tested_for_gene*2))
-print(paste0("case LoF variants: ", n_LoFs_in_tested))
-print(paste0("case extrapolated LoF variants: ", extrapolated_n_LoFs_in_tested))
-
-return(downsample_stats_100K)
-}
 ```
 
-```{r 100K_inference_data_generation}
-cum_downsample_data_inf <- 
-tibble(gene = character(),
-       distinct_loci = integer(),
-       AC_sum = integer(),
-       run = integer(),
-       pancan_inf = integer())
+```{r downsampling_plots}
+## subplots were made by adding required genes names to function.
+plot_for_export <- 
+downsampling_plot(input_gene = "BAP1")
 
-
-for (x in ADXLR_isolatedcancerrisk_names) { 
-cum_downsample_data_inf <- bind_rows(
-  cum_downsample_data_inf,
-  downsample_inferred(x))
-}
-```
-
-```{r plot_inf_vs_100K_gnomad}
-## Reordering cum_downsample_data$gene
-cum_downsample_data_inf$gene <- cum_downsample_data_inf$gene %>%
-  fct_relevel(
-    "SMARCA4", "TRIM28", "RB1", "CTR9", "APC", "PAX5", "DICER1",
-    "SMARCE1", "SMARCB1", "FBXW7", "TRIP13", "BAP1", "REST", "TP53",
-    "GPR161", "ELP1", "CDKN2A"
-  ) 
-
-pancan_vs_gnomad_inferred_plot <- 
-cum_downsample_data_inf %>% 
-  ggplot(aes(x = distinct_loci)) +
-  geom_bar(color = blue,
-           fill = "white",
-           size = 1) +
-  #geom_bar(aes(x = pancan_obs), fill = blue) +
-  geom_segment(aes(x=pancan_inf, y=25, xend=pancan_inf, yend=5),
-               arrow = arrow(length=unit(.15, 'cm'),type = "closed"),
-               size = 1,
-               color = "#C03830", lineend = "square") +
-  scale_x_continuous(limits = c(-1,250),
-                     breaks = c(0,10,25,50,100,200),
-                     trans=scales::pseudo_log_trans(base = 10)) +
-  scale_y_continuous(limits = c(0,100),
-                     labels = percent_format(scale = 1),
-                     breaks = c(0,50,100)) +
-  theme_minimal() + 
-    theme(panel.grid.major = element_line(linetype = "solid"),
-    panel.grid.minor = element_line(linetype = "blank"),
-    panel.background = element_rect(fill = NA),
-    plot.background = element_rect(colour = NA)) +
-  labs(x = NULL, y = NULL) +
-  facet_wrap(.~gene, ncol =1) +
-  theme(strip.placement = "outside",
-          strip.background.x= element_blank(),
-          strip.text = element_blank(),
-          axis.title.y = element_text())
-
-ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_4_inf.svg", plot = pancan_vs_gnomad_inferred_plot, height = 20, width = 4)
+ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_4_DS_sub.svg", plot = plot_for_export, height = 1.5, width = 5)
 ```
 
 The figure was designed mainly using Biorender where the plots above were added.
@@ -2075,8 +1935,10 @@ mutate(gene = gsub(" ", "", `Reported Genes`)) %>%
   #filter(Adult_vs_children == "Children") %>% 
   distinct(gene, Adult_vs_children, .keep_all = T)
 
-# perform a t-test to compare the constraint scores of the genes with risk SNPs and the genes without risk SNPs
-t.test(GWAS_meta_filtered$oe_lof_upper ~ GWAS_meta_filtered$Adult_vs_children, var.equal=T )
+# perform a test to compare the constraint scores of the genes with risk SNPs and the genes without risk SNPs
+wilcox.test(GWAS_meta_filtered$oe_lof_upper ~ GWAS_meta_filtered$Adult_vs_children, var.equal=T )
+wilcox.test(GWAS_meta_filtered$cds_length ~ GWAS_meta_filtered$Adult_vs_children, var.equal=T )
+lm(oe_lof_upper ~ Adult_vs_children + cds_length, data = GWAS_meta_filtered) %>% summary()
 
 # plot the upper bound of the odds ratio for the loss of function variants
 # for each gene in the GWAS catalog
@@ -2103,7 +1965,27 @@ GWAS_anno_cons %>%
   #geom_text_repel() +
   facet_wrap(~risk_SNP)
 
-t.test(GWAS_anno_cons$oe_lof_upper ~ GWAS_anno_cons$risk_SNP, var.equal=T )
+GWAS_anno_cons_child_vs_no_risk <- 
+GWAS_anno_cons %>% filter(risk_SNP %in% c("child_cancer_risk", "no_cancer_risk"))
+
+wilcox.test(GWAS_anno_cons_child_vs_no_risk$oe_lof_upper ~ GWAS_anno_cons_child_vs_no_risk$risk_SNP, var.equal=T)
+wilcox.test(GWAS_anno_cons_child_vs_no_risk$cds_length ~ GWAS_anno_cons_child_vs_no_risk$risk_SNP, var.equal=T)
+lm(oe_lof_upper ~ cds_length + risk_SNP, data = GWAS_anno_cons_child_vs_no_risk) %>% summary()
+
+
+GWAS_anno_cons_adult_vs_no_risk <- 
+GWAS_anno_cons %>% filter(risk_SNP %in% c("adult_cancer_risk", "no_cancer_risk"))
+
+wilcox.test(GWAS_anno_cons_adult_vs_no_risk$oe_lof_upper ~ GWAS_anno_cons_adult_vs_no_risk$risk_SNP, var.equal=T)
+wilcox.test(GWAS_anno_cons_adult_vs_no_risk$cds_length ~ GWAS_anno_cons_adult_vs_no_risk$risk_SNP, var.equal=T)
+lm(oe_lof_upper ~ cds_length + risk_SNP, data = GWAS_anno_cons_adult_vs_no_risk) %>% summary()
+
+GWAS_anno_cons_combined_vs_no_risk <- 
+GWAS_anno_cons %>% mutate(risk_SNP_combined = if_else(risk_SNP %in% c("adult_cancer_risk", "child_cancer_risk"),"risk", "no"))
+
+wilcox.test(GWAS_anno_cons_combined_vs_no_risk$oe_lof_upper ~ GWAS_anno_cons_combined_vs_no_risk$risk_SNP_combined, var.equal=T)
+wilcox.test(GWAS_anno_cons_combined_vs_no_risk$cds_length ~ GWAS_anno_cons_combined_vs_no_risk$risk_SNP_combined, var.equal=T)
+lm(oe_lof_upper ~ cds_length + risk_SNP_combined, data = GWAS_anno_cons_combined_vs_no_risk) %>% summary()
 ```
 
 
