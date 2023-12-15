@@ -896,7 +896,7 @@ mut_freq_pancancer_studies %>% summarize(max(n_tested))
 ## commented out for reference. To run download from gnomad variant browser and replace paths.
 #ELP1 pLoF comparision script
 #loading pLoF variants from ELP1 in gnomad v2.1
-## gnomad_pLoF_ELP1 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000070061_2022_06_17_13_34_12.csv")
+#gnomad_pLoF_ELP1 <- read.csv("c:/Users/usto0005/Downloads/gnomAD_v2.1.1_ENSG00000070061_2022_06_17_13_34_12.csv")
 
 # reformatting data for protein paint
 # gnomad_pLoF_ELP1_ProteinPaint <-
@@ -1054,8 +1054,8 @@ pan_cancer_data[["Byrjalsen_pCPS_genes_2021"]] %>%
 ## pCPS GENES
 
 # compares LOEUF scores for all 85 pCPS genes vs. all genes
-#overall_ttest <- 
-wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$pCPS_gene, var.equal=T )
+overall_ttest <- 
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$pCPS_gene, var.equal=T, )
 
 # compares LOE scores for all 85 pCPS genes vs. all genes
 overall_ttest_loe <- 
@@ -1064,10 +1064,12 @@ wilcox.test(canonical_constraint_metrics$oe_lof ~ canonical_constraint_metrics$p
 # compares LOEUF scores for monoallelic [AD/XLR] pCPS genes vs. all genes
 ADXLR_vs_all_ttest <- 
 wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_pCPS_gene, var.equal=T )
+ADXLR_vs_all_ttest$
 
 # compares LOEUF scores for monoallelic [AD/XLR], LoF pCPS genes vs. all other genes
 ADXLR_LoF_vs_all_ttest <- 
 wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T, exact = TRUE)
+ADXLR_LoF_vs_all_ttest$p.value
 
 # compares LOEUF scores for monoallelic [AD], GoF pCPS genes vs. all other genes
 #ADXLR_LoF_vs_all_ttest <- 
@@ -1226,7 +1228,7 @@ fisher.test(matrix(c(34,
 overview_randomset_plot <- 
 sizematched_constraint_metrics_54 %>%
   ungroup() %>%
-  sample_n(85) %>% 
+  sample_n(85) %>% clipr::write_clip() %>% 
   arrange(oe_lof_upper) %>% # First sort by val. This sort the dataframe but NOT the factor levels
   mutate(gene=factor(gene, levels=gene)) %>%   # This trick update the factor levels
   bind_cols(#.,
@@ -1363,7 +1365,7 @@ plot_grid(overview_randomset_plot,
           ncol = 1, rel_heights = c(1,1,1,0.66))
 
 #saves the plot to a given location
-ggsave("C:/Users/usto0005/Desktop/revised_figure_2_million.svg", plot = Figure_2_revised, height = 10, width = 10)
+ggsave("C:/Users/usto0005/Desktop/final_revised_figure_2_million.svg", plot = Figure_2_revised, height = 10, width = 10)
 ```
 
 The combined subplots were visualized and arranged using Biorender.
@@ -1523,7 +1525,7 @@ gc()
 ```
 
 ```{r downsampling_import}
-# loading precomputed downsampling
+# loading precomputed downsampling [publicly available here: https://storage.googleapis.com/gcp-public-data--gnomad/release/2.1.1/constraint/gnomad.v2.1.1.lof_metrics.downsamplings.txt.bgz]
 downsampled_gnomAD <- vroom("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/gnomad.v2.1.1.lof_metrics.downsamplings.txt")
 
 downsampled_gnomAD <- downsampled_gnomAD %>% filter(canonical == TRUE)
@@ -1567,7 +1569,7 @@ sizes <- gnomad_precomputed_downsample_sizes %>%
 
 pancan_pop <-
 LoFs_in_tested %>% select(HGVS_for_distinct) %>%
-  bind_rows(tibble(HGVS_for_distinct = rep(NA, n_tested_for_gene-n_LoFs_in_tested)))
+  bind_rows(tibble(HGVS_for_distinct = as.character(rep(NA, n_tested_for_gene-n_LoFs_in_tested))))
 
 pancan_DS <- 
 tibble(
@@ -1604,8 +1606,8 @@ ggplot() +
   geom_point(data = pancan_DS, aes(size, distinct_LoFs), color = red) +
   geom_line(data = pancan_DS, aes(size, distinct_LoFs), linewidth = 1, color = red) +
   scale_x_continuous(trans = "log2",
-                     limits = c(125, 128000),
-                     breaks = c(125, 250, 500, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000)) +
+                     limits = c(500, 128000),
+                     breaks = c(500, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000)) +
   scale_y_continuous(trans = "log2",
                      limits = c(1, 64),
                      breaks = c(1, 2, 4, 8, 16, 32, 64)) +
@@ -1621,11 +1623,34 @@ return(plot)
 
 ```{r downsampling_plots}
 ## subplots were made by adding required genes names to function.
-plot_for_export <- 
-downsampling_plot(input_gene = "BAP1")
+df <- tibble()
+#for (i in ADXLR_isolatedcancerrisk_names) {
+  for (i in ADXLR_isolatedcancerrisk_names) {
+  supp_plot <- downsampling_plot(input_gene = i)
+  ggsave(paste0("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/supp_plot_ds_",i,".svg"), plot = supp_plot, height = 1.5, width = 5)
+  supp_source_data <- as.tibble(fig4c_func(supp_plot)) %>% mutate(gene = i)
+  df <- bind_rows(df,supp_source_data)
+  }
 
-ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_4_DS_sub.svg", plot = plot_for_export, height = 1.5, width = 5)
+df %>% clipr::write_clip()
 ```
+
+```{r supplementary_downsampling_plots}
+for (i in "PAX5") {
+  supp_plot <- downsampling_plot(input_gene = i)
+  ggsave(paste0("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/supp_plot_ds_",i,".svg"), plot = supp_plot, height = 1.5, width = 5)
+  supp_source_data <- as.data.frame(fig4c_func(supp_plot))
+  write_e(file = paste0("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/supp_plot_ds_",i,".csv"), x = supp_source_data)
+}
+
+plot_for_export_SMARCA4 <- downsampling_plot(input_gene = "SMARCA4") %>% print()
+plot_for_export_RB1 <- downsampling_plot(input_gene = "RB1") %>% print()
+plot_for_export_APC <- downsampling_plot(input_gene = "APC") %>% print()
+plot_for_export_DICER1 <- downsampling_plot(input_gene = "DICER1") %>% print()
+plot_for_export_SMARCB1 <- downsampling_plot(input_gene = "SMARCB1") %>% print()
+plot_for_export_TP53 <- downsampling_plot(input_gene = "TP53") %>% print()
+```
+
 
 The figure was designed mainly using Biorender where the plots above were added.
 
@@ -1758,7 +1783,7 @@ ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandb
 ```
 
 ```{r mis_53_genes_plot fig.width=10, fig.height=9, echo = FALSE, warning=F,include=F}
-# plotting all 84 genes and level of LoF constriant
+# plotting ADXLR genes and level of missense constriant
 mis_pCPSall_plot <- 
 peds_CPS_constaint_anno %>% 
   filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)", "XLR")) %>% 
@@ -1798,7 +1823,7 @@ peds_CPS_constaint_anno %>%
         axis.title.x = element_blank())
 
 
-# plotting all 84 genes by mode of inheritance and level of LoF constriant
+# plotting all ADXLR genes by mode of inheritance and level of missense constriant
 mis_pCPSmode_plot <- 
 peds_CPS_constaint_anno %>% 
   filter(`ADDED: LoF vs GoF` %in% c("AD (LoF)", "XLR")) %>% 
@@ -1877,7 +1902,7 @@ ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandb
 
 Figure was rearranged using Biorender, in response to reviewer comments.
 
-## Figure 6
+# Supplementary & alternate plotting considered, notes, and scraps
 
 ```{r adult_vs_peds_muts_plot}
 cons_in_adult_vs_peds_mut_genes <-   
@@ -1913,10 +1938,6 @@ bind_rows(peds_pan_cancer_data_PVs_anno, adult_pan_cancer_data_PVs_anno) %>%
 
 ggsave("L:/LovbeskyttetMapper/STAGING loggede data/CNS tumorer/constrained_sandbox/Figure_6.svg", plot = cons_in_adult_vs_peds_mut_genes, height = 4, width = 12)
 ```
-
-Final figure was compiled using Biorender.
-
-# Alternate plotting considered, notes, and scraps
 
 ```{r GWAS_data_and_plotting}
 # import the excel file with the GWAS data
@@ -1959,6 +1980,7 @@ canonical_constraint_metrics %>%
   mutate(risk_SNP = if_else(gene %in% GWAS_gene_c, "child_cancer_risk",
                             if_else(gene %in% GWAS_gene_a, "adult_cancer_risk", "no_cancer_risk")))
 
+GWAS <- 
 GWAS_anno_cons %>% 
   ggplot(aes("SNPs", oe_lof_upper, label = gene)) +
   geom_violin() +
@@ -1988,4 +2010,222 @@ wilcox.test(GWAS_anno_cons_combined_vs_no_risk$cds_length ~ GWAS_anno_cons_combi
 lm(oe_lof_upper ~ cds_length + risk_SNP_combined, data = GWAS_anno_cons_combined_vs_no_risk) %>% summary()
 ```
 
+### Source data extraction
+
+As per journal guidelines, source data for each included plot was extracted in the following fashion (requires running code above!):
+
+```{r}
+#fig2a
+ggplot_build(overview_randomset_plot)$data[[1]] %>%
+  select(label,x,y,ymin,ymax,colour) %>% clipr::write_clip()
+
+ggplot_build(overview_randomset_plot)$data[[2]] %>%
+  select(yintercept,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(overview_randomset_plot)$data[[3]] %>%
+  select(label,x,y,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(overview_randomset_plot)$data[[4]] %>%
+  select(label,x,y,colour,linetype) %>% clipr::write_clip()
+
+#fig2b
+ggplot_build(overview_pCPSall_plot)$data[[1]] %>%
+  select(label,x,y,ymin,ymax,colour) %>% clipr::write_clip()
+
+ggplot_build(overview_pCPSall_plot)$data[[2]] %>%
+  select(yintercept,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(overview_pCPSall_plot)$data[[3]] %>%
+  select(label,x,y,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(overview_pCPSall_plot)$data[[4]] %>%
+  select(label,x,y,colour,linetype) %>% clipr::write_clip()
+
+#fig2c
+ggplot_build(overview_pCPSmode_plot)$data[[1]] %>%
+  select(label,PANEL,x,y,ymin,ymax,colour) %>% clipr::write_clip()
+
+ggplot_build(overview_pCPSmode_plot)$data[[2]] %>%
+  select(yintercept,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(overview_pCPSmode_plot)$data[[3]] %>%
+  select(label,PANEL,x,y,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(overview_pCPSmode_plot)$data[[4]] %>%
+  select(label,PANEL,x,y,colour,linetype) %>% clipr::write_clip()
+
+#fig2d
+#stat test metrics
+table(canonical_constraint_metrics$ADXLR_LoF_pCPS_gene)
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T, exact = TRUE, ) %>% .$estimate
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T, exact = TRUE, ) %>% .$p.value
+
+table(sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene)
+t.test(sizematched_constraint_metrics_54_for_test$oe_lof_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T ) %>% .$estimate
+wilcox.test(sizematched_constraint_metrics_54_for_test$oe_lof_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T ) %>% .$p.value
+
+table(canonical_constraint_metrics$AR_pCPS_gene)
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T ) %>% .$estimate
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T ) %>% .$p.value
+
+table(canonical_constraint_metrics$ADXLR_aCPS_gene)
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T ) %>% .$estimate
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T ) %>% .$p.value
+
+table(canonical_constraint_metrics$AR_aCPS_gene)
+t.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T ) %>% .$estimate
+wilcox.test(canonical_constraint_metrics$oe_lof_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T ) %>% .$p.value
+
+#histogram input
+ggplot_build(million_plot_for_figure_2)$data[[1]] %>% 
+  mutate(bin = row_number()) %>% 
+  select(bin,xmin,xmax,count,y,fill) %>% clipr::write_clip()
+
+ggplot_build(million_plot_for_figure_2)$data[[2]] %>% 
+  mutate(bin = row_number()) %>% 
+  select(bin,xmin,xmax,count,y,fill) %>% clipr::write_clip()
+
+#fig3a
+peds_CPS_constaint_anno %>% 
+    mutate(lof_constrained_evidence = case_when(
+    oe_lof_upper <= 0.35 ~ "A: Constrained",
+    oe_lof_upper >= 0.35 & oe_lof < 0.35 ~ "B: Likely constrained",
+    oe_lof_lower <= 0.35 & oe_lof > 0.35 ~ "C: Likely not constrained",
+    oe_lof_upper >= 0.35 ~ "D: Not constrained"
+  )) %>% 
+    mutate(Inheritance_sankey = case_when(
+    Inheritance == "AD" ~ "A: Autosomal dominant",
+    Inheritance == "XLR" ~ "B: X-linked recessive",
+    Inheritance == "AR" ~ "C: Autosomal recessive"
+  )) %>% 
+    mutate(`ADDED: non_cancer_phenotype` = case_when(
+    `ADDED: non_cancer_phenotype` == "None" ~ "D: None",
+    `ADDED: non_cancer_phenotype` == "Discrete" ~ "C: Discrete",
+    `ADDED: non_cancer_phenotype` == "Moderate" ~ "B: Moderate",
+    `ADDED: non_cancer_phenotype` == "Severe" ~ "A: Severe"
+  )) %>% 
+  filter(!is.na(lof_constrained_evidence)) %>% 
+  select(gene,Inheritance_sankey, lof_constrained_evidence, `ADDED: non_cancer_phenotype`,`ADDED: LoF vs GoF`) %>% 
+  clipr::write_clip()
+
+#fig3b
+ggplot_build(ADXLR_vs_bar_plot)$data[[1]] %>% 
+  select(fill, PANEL, x, y) %>% clipr::write_clip()
+
+#fig3c
+ggplot_build(pCPS_ADXLR_year_of_discovery)$data[[1]] %>% 
+  select(label, group, x, y) %>% clipr::write_clip()
+
+#fig4a_b
+ds_iso_data <- 
+downsampled_gnomAD %>% filter(gene%in%c(ADXLR_isolatedcancerrisk_names,"IKBKAP"), pop=="global", downsampling==100000) %>% 
+  mutate(gene = if_else(gene == "IKBKAP", "ELP1", gene)) %>% 
+  mutate(exp_lof=round(exp_lof,0)) %>% 
+  select(gene, downsampling, exp_lof, obs_lof)
+
+left_join(
+canonical_constraint_metrics %>% 
+  filter(gene%in%c(ADXLR_isolatedcancerrisk_names)) %>% 
+  select(gene, cds_length, oe_lof, oe_lof_lower, oe_lof_upper),
+ds_iso_data,
+by = "gene") %>% 
+  mutate(bp_per_exp_lof_100K = round(cds_length/exp_lof,0)) %>% clipr::write_clip()
+
+#fig4c
+fig4c_func <- function(plot) {
+df <- 
+  bind_rows(
+  ggplot_build(plot)$data[[2]],
+  ggplot_build(plot)$data[[4]],
+  ggplot_build(plot)$data[[6]]) %>% 
+  select(colour,x,y) %>% 
+  mutate(n = 2^x,
+         lofs = 2^y) %>% 
+  filter(!is.na(y),
+         !is.na(x))
+return(df)
+}
+
+fig4c_func(plot_for_export_TP53) %>% clipr::write_clip()
+
+#fig5a
+ggplot_build(ped_mut_freq_plot)$data[[1]] %>%
+  select(x,ymin,ymax, fill) %>% 
+  arrange(x) %>% clipr::write_clip()
+
+ggplot_build(ped_mut_prop_plot)$data[[1]] %>%
+  select(x,ymin,ymax, fill) %>% 
+  arrange(x) %>% clipr::write_clip()
+
+#fig5c
+ggplot_build(mis_pCPSall_plot)$data[[1]] %>%
+  select(label,x,y,ymin,ymax,colour) %>% clipr::write_clip()
+
+ggplot_build(mis_pCPSall_plot)$data[[2]] %>%
+  select(yintercept,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(mis_pCPSall_plot)$data[[3]] %>%
+  select(label,x,y,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(mis_pCPSall_plot)$data[[4]] %>%
+  select(label,x,y,colour,linetype) %>% clipr::write_clip()
+
+#fig5_d
+ggplot_build(mis_pCPSmode_plot)$data[[1]] %>%
+  select(label,PANEL,x,y,ymin,ymax,colour) %>% clipr::write_clip()
+
+ggplot_build(mis_pCPSmode_plot)$data[[2]] %>%
+  select(yintercept,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(mis_pCPSmode_plot)$data[[3]] %>%
+  select(label,PANEL,x,y,colour,linetype) %>% clipr::write_clip()
+
+ggplot_build(mis_pCPSmode_plot)$data[[4]] %>%
+  select(label,PANEL,x,y,colour,linetype) %>% clipr::write_clip()
+
+#fig5e
+#stat test metrics
+table(canonical_constraint_metrics$ADXLR_LoF_pCPS_gene)
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T, exact = TRUE, ) %>% .$estimate
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_LoF_pCPS_gene, var.equal=T, exact = TRUE, ) %>% .$p.value
+
+table(sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene)
+t.test(sizematched_constraint_metrics_54_for_test$oe_mis_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T ) %>% .$estimate
+wilcox.test(sizematched_constraint_metrics_54_for_test$oe_mis_upper ~ sizematched_constraint_metrics_54_for_test$AD_LoF_XLR_gene, var.equal=T ) %>% .$p.value
+
+table(canonical_constraint_metrics$AR_pCPS_gene)
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T ) %>% .$estimate
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_pCPS_gene, var.equal=T ) %>% .$p.value
+
+table(canonical_constraint_metrics$ADXLR_aCPS_gene)
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T ) %>% .$estimate
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$ADXLR_aCPS_gene, var.equal=T ) %>% .$p.value
+
+table(canonical_constraint_metrics$AR_aCPS_gene)
+t.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T ) %>% .$estimate
+wilcox.test(canonical_constraint_metrics$oe_mis_upper ~ canonical_constraint_metrics$AR_aCPS_gene, var.equal=T ) %>% .$p.value
+
+#histogram input
+ggplot_build(million_plot_for_figure_5)$data[[1]] %>% 
+  mutate(bin = row_number()) %>% 
+  select(bin,xmin,xmax,count,y,fill) %>% clipr::write_clip()
+
+ggplot_build(million_plot_for_figure_5)$data[[2]] %>% 
+  mutate(bin = row_number()) %>% 
+  select(bin,xmin,xmax,count,y,fill) %>% clipr::write_clip()
+
+#fig7
+canonical_constraint_metrics %>% 
+  filter(gene%in%c("CHEK2","PMS2","PALB2","BRCA1","ATM","BRCA2","MLH1","MSH6","MSH2","DIS3L2")) %>% 
+  select(gene, oe_lof, oe_lof_lower, oe_lof_upper)%>% clipr::write_clip()
+  
+#supp fig 1
+ggplot_build(cons_in_adult_vs_peds_mut_genes)$data[[1]] %>% 
+  select(fill,PANEL,x,y) %>% clipr::write_clip()
+
+#supp fig 2
+ggplot_build(GWAS)$data[[1]] %>% 
+  select(x, PANEL, y, violinwidth) %>% clipr::write_clip()
+
+```
 
